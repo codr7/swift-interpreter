@@ -11,6 +11,7 @@
 
 /*
  First out is types and values.
+
  Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
  */
 
@@ -47,8 +48,7 @@ typealias Pc = Int
  Functions take the current program counter as a reference argument when called,
  which allows them to decide where to return to.
 
- This time around, we'll only deal with primitives, that have no virtual code;
- which means that they'll typically simply increase the program counter.
+ This time around; we'll only deal with primitives, which typically simply increase the program counter.
  
  But once we get to user defined functions, this allows us to jump to the actual code of the called function.
  */
