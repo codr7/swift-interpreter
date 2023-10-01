@@ -44,7 +44,7 @@ struct Val {
 typealias Pc = Int
 
 /*
- Functions take the current program counter as a reference argument,
+ Functions take the current program counter as a reference argument when called,
  which allows them to decide where to return to.
 
  This time around, we'll only deal with primitives, that have no virtual code;
@@ -74,7 +74,7 @@ class Fun {
 
  Any kind of code we want to run on it, regardless of syntax; needs to be reduced to a sequence of operations.
 
- The reason there's a separate case for stopping execution is to avoid having to check in the eval loop,
+ The reason there's a separate case for stopping is to avoid having to check in the eval loop,
  which needs to be as fast as possible.
  */
 
@@ -120,7 +120,7 @@ class M {
     }
 
     func pop() -> Val? {
-        return stack.removeLast()
+        stack.removeLast()
     }
 
     func push(_ val: Val) {
