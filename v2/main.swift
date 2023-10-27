@@ -5,10 +5,13 @@
  A taste of interpreters, Swift, or both; depending on where you're coming from.
 
  Rather than starting with syntax and parsers, we'll work from the bottom up.
- 
- This time around we'll focus on adding support for tasks, aka. fibers or green threads.
- 
+  
  To try it out; simply download and install Swift, and run `swift main.swift`.
+
+ CHANGES
+ -------
+ v2:
+ Added support for tasks, aka. fibers or green threads.
  ***/
 
 /*
@@ -136,6 +139,11 @@ class M {
     var code: [Op] = []
     var tasks: [Task] = []
     var currentTask: Task? {tasks[0]}
+    var nextTaskId = 0
+
+    init() {
+        startTask()
+    }
     
     func dumpStack() async -> String {
         "[\(currentTask!.stack.map({$0.dump()}).joined(separator: " "))]"
@@ -158,8 +166,9 @@ class M {
     }
 
     func startTask(pc: Pc = 0) {
-        let t = Task(self, id: tasks.count, startPc: pc)
+        let t = Task(self, id: nextTaskId, startPc: pc)
         tasks.append(t)
+        nextTaskId += 1
     }
 
     func switchTask() {
@@ -191,7 +200,6 @@ m.emit(.call(pongFun))
 m.emit(.yield)
 m.emit(.stop)
 
-m.startTask()
 m.startTask()
 try m.eval(fromPc: 0)
 
