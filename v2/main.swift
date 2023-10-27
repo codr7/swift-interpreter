@@ -95,39 +95,13 @@ enum Op {
 typealias TaskId = Int
 
 class Task {
-    let m: M
     let id: TaskId
     var stack: [Val] = []
     var pc: Pc
 
-    init(_ m: M, id: TaskId, startPc: Pc) {
-        self.m = m
+    init(id: TaskId, startPc: Pc) {
         self.id = id
         self.pc = startPc
-    }
-
-    func eval(fromPc: Pc) throws {
-        pc = fromPc
-        
-        loop: while true {
-            let op = m.code[pc]
- 
-            switch op {
-            case let .call(target):
-                try pc = target.call(m, pc: pc)
-            case let .push(val):
-                stack.append(val)
-                pc += 1
-                break
-            case .stop:
-                break loop
-            case .yield:
-                pc += 1
-                m.switchTask()
-                try! m.eval(fromPc: m.currentTask!.pc)
-                break
-            }
-        }
     }
 }
 
@@ -137,9 +111,13 @@ class Task {
 
 class M {
     var code: [Op] = []
+    var nextTaskId = 0
     var tasks: [Task] = []
     var currentTask: Task? {tasks[0]}
-    var nextTaskId = 0
+    var pc: Pc {
+        get {currentTask!.pc}
+        set(pc) {currentTask!.pc = pc}
+    }
 
     init() {
         startTask()
@@ -154,7 +132,27 @@ class M {
     }
     
     func eval(fromPc: Pc) throws {
-        try! currentTask!.eval(fromPc: fromPc)
+        pc = fromPc
+        
+        loop: while true {
+            let op = code[pc]
+ 
+            switch op {
+            case let .call(target):
+                try pc = target.call(self, pc: pc)
+            case let .push(val):
+                push(val)
+                pc += 1
+                break
+            case .stop:
+                break loop
+            case .yield:
+                pc += 1
+                switchTask()
+                try! eval(fromPc: m.currentTask!.pc)
+                break
+            }
+        }
     }
 
     func pop() -> Val? {
@@ -166,7 +164,7 @@ class M {
     }
 
     func startTask(pc: Pc = 0) {
-        let t = Task(self, id: nextTaskId, startPc: pc)
+        let t = Task(id: nextTaskId, startPc: pc)
         tasks.append(t)
         nextTaskId += 1
     }
