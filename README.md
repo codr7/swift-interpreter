@@ -10,7 +10,7 @@ Rather than starting with parsing; we'll work from the bottom up, starting with 
 To try it out; simply download and install Swift, `cd` into a version and run `swift main.swift`.
 
 ## design
-The virtual machine we'll be building is stack based, as opposed to register based.<br/>
+The virtual machine we'll build is stack based, as opposed to register based.<br/>
 <br/>
 Each design has it's strengths and weaknesses; stacks need to be shuffled and registers allocated; but I find stacks more elegant and easy to reason about than registers.
 
