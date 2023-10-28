@@ -16,11 +16,13 @@
 
 /*
  First out is types and values.
-
- Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
  */
 
 struct Val {
+    /*
+     Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
+     */
+    
     class T {
         let name: String
         
