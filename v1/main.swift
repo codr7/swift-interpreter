@@ -53,7 +53,7 @@ typealias Pc = Int
  */
 
 class Fun {
-    typealias Body = (M, inout Pc) throws -> Void
+    typealias Body = (VM, inout Pc) throws -> Void
     
     let name: String
     let body: Body
@@ -63,8 +63,8 @@ class Fun {
         self.body = body
     }
 
-    func call(_ m: M, returnPc: inout Pc) throws {
-        try body(m, &returnPc)
+    func call(_ vm: VM, returnPc: inout Pc) throws {
+        try body(vm, &returnPc)
     }
 }
 
@@ -87,7 +87,7 @@ enum Op {
  The virtual machine is where the rubber finally meets the road.
  */
 
-class M {
+class VM {
     var code: [Op] = []
     var stack: [V] = []
 
@@ -133,26 +133,26 @@ class M {
  We'll settle for some simple arithmetics this time around, just to get an idea how everything works.
  */
 
-let m = M()
+let vm = VM()
 
 let intType = T("Int")
 
-let addFun = Fun("+") {(m: M, returnPc: inout Pc) throws -> Void in
-    let r = m.pop()!
-    let l = m.pop()!
-    m.push(V(intType, (l.data as! Int) + (r.data as! Int)))
+let addFun = Fun("+") {(vm: VM, returnPc: inout Pc) throws -> Void in
+    let r = vm.pop()!
+    let l = vm.pop()!
+    vm.push(V(intType, (l.data as! Int) + (r.data as! Int)))
     returnPc += 1
 }
 
-m.emit(.push(V(intType, 6)))
-m.emit(.push(V(intType, 4)))
-m.emit(.call(addFun))
-m.emit(.stop)
+vm.emit(.push(V(intType, 6)))
+vm.emit(.push(V(intType, 4)))
+vm.emit(.call(addFun))
+vm.emit(.stop)
 
-try m.eval(fromPc: 0)
+try vm.eval(fromPc: 0)
 
 /*
  This prints [10], which is the final contents of the stack after adding 6 to 4.
  */
 
-print(m.dumpStack())
+print(vm.dumpStack())

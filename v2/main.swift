@@ -58,7 +58,7 @@ typealias Pc = Int
  */
 
 class Fun {
-    typealias Body = (M, Pc) throws -> Pc
+    typealias Body = (VM, Pc) throws -> Pc
     
     let name: String
     let body: Body
@@ -68,8 +68,8 @@ class Fun {
         self.body = body
     }
 
-    func call(_ m: M, pc: Pc) throws -> Pc {
-        try body(m, pc)
+    func call(_ vm: VM, pc: Pc) throws -> Pc {
+        try body(vm, pc)
     }
 }
 
@@ -109,7 +109,7 @@ class Task {
  The virtual machine is where the rubber finally meets the road.
  */
 
-class M {
+class VM {
     var trace = false
     var code: [Op] = []
     var nextTaskId = 0
@@ -155,7 +155,7 @@ class M {
             case .yield:
                 pc += 1
                 switchTask()
-                try! eval(fromPc: m.currentTask!.pc)
+                try! eval(fromPc: vm.currentTask!.pc)
                 break
             }
         }
@@ -186,27 +186,27 @@ class M {
  We'll let two tasks play ping pong.
  */
 
-let m = M()
-m.trace = true
+let vm = VM()
+vm.trace = true
 
-let pingFun = Fun("ping") {(m: M, pc: Pc) throws -> Pc in
-    print("ping \(m.currentTask!.id)")
+let pingFun = Fun("ping") {(vm: VM, pc: Pc) throws -> Pc in
+    print("ping \(vm.currentTask!.id)")
     return pc + 1
 }
 
-let pongFun = Fun("pong") {(m: M, pc: Pc) throws -> Pc in
-    print("pong \(m.currentTask!.id)")
+let pongFun = Fun("pong") {(vm: VM, pc: Pc) throws -> Pc in
+    print("pong \(vm.currentTask!.id)")
     return pc + 1
 }
 
-m.emit(.call(pingFun))
-m.emit(.yield)
-m.emit(.call(pongFun))
-m.emit(.yield)
-m.emit(.stop)
+vm.emit(.call(pingFun))
+vm.emit(.yield)
+vm.emit(.call(pongFun))
+vm.emit(.yield)
+vm.emit(.stop)
 
-m.startTask()
-try m.eval(fromPc: 0)
+vm.startTask()
+try vm.eval(fromPc: 0)
 
 /*
  Output:
