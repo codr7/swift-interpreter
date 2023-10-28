@@ -1,15 +1,9 @@
+/* Version 2 */
+
 /*
  We use structs to represent values, every value has a type.
  Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
  */
-
-class ValueType {
-    let name: String
-    
-    init(_ name: String) {
-        self.name = name
-    }
-}
 
 struct Value {
     let type: ValueType
@@ -22,6 +16,14 @@ struct Value {
 
     func dump() -> String {
         "\(data)"
+    }
+}
+
+class ValueType {
+    let name: String
+    
+    init(_ name: String) {
+        self.name = name
     }
 }
 
