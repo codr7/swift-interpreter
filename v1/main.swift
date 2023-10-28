@@ -1,26 +1,7 @@
-/***
- The goal here is to provide the foundation for an interpreter in Swift that is simple enough to understand,
- yet substantial enough to continue building upon and playing around with.
-
- A taste of interpreters, Swift, or both; depending on where you're coming from.
-
- Rather than starting with syntax and parsers, we'll work from the bottom up.
- 
- To try it out; simply download and install Swift, and run `swift main.swift`.
- ***/
-
 /*
- First out is types and values.
+ We use structs to represent values, every value has a type.
  Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
  */
-
-class ValueType {
-    let name: String
-    
-    init(_ name: String) {
-        self.name = name
-    }
-}
 
 struct Value {
     let type: ValueType
@@ -33,6 +14,14 @@ struct Value {
 
     func dump() -> String {
         "\(data)"
+    }
+}
+
+class ValueType {
+    let name: String
+    
+    init(_ name: String) {
+        self.name = name
     }
 }
 

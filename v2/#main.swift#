@@ -3,14 +3,6 @@
  Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
  */
 
-class ValueType {
-    let name: String
-    
-    init(_ name: String) {
-        self.name = name
-    }
-}
-
 struct Value {
     let type: ValueType
     let data: Any
@@ -22,6 +14,14 @@ struct Value {
 
     func dump() -> String {
         "\(data)"
+    }
+}
+
+class ValueType {
+    let name: String
+    
+    init(_ name: String) {
+        self.name = name
     }
 }
 
