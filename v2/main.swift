@@ -92,14 +92,14 @@ enum Op {
 
 /* Tasks represent independent flows of execution with separate stacks and program counters. */
 
-typealias TaskId = Int
-
 class Task {
-    let id: TaskId
+    typealias Id = Int
+
+    let id: Id
     var stack: [Val] = []
     var pc: Pc
 
-    init(id: TaskId, startPc: Pc) {
+    init(id: Id, startPc: Pc) {
         self.id = id
         self.pc = startPc
     }
