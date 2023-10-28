@@ -11,21 +11,18 @@
 
 /*
  First out is types and values.
+ Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
  */
 
-struct Val {
-    /*
-     Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
-     */
+class T {
+    let name: String
     
-    class T {
-        let name: String
-        
-        init(_ name: String) {
-            self.name = name
-        }
+    init(_ name: String) {
+        self.name = name
     }
+}
 
+struct V {
     let type: T
     let data: Any
 
@@ -82,7 +79,7 @@ class Fun {
 
 enum Op {
     case call(Fun)
-    case push(Val)
+    case push(V)
     case stop
 }
 
@@ -92,7 +89,7 @@ enum Op {
 
 class M {
     var code: [Op] = []
-    var stack: [Val] = []
+    var stack: [V] = []
 
     func dumpStack() -> String {
         "[\(stack.map({$0.dump()}).joined(separator: " "))]"
@@ -111,8 +108,8 @@ class M {
             switch op {
             case let .call(target):
                 try target.call(self, returnPc: &pc)
-            case let .push(val):
-                stack.append(val)
+            case let .push(v):
+                stack.append(v)
                 pc += 1
                 break
             case .stop:
@@ -121,12 +118,12 @@ class M {
         }
     }
 
-    func pop() -> Val? {
+    func pop() -> V? {
         stack.removeLast()
     }
 
-    func push(_ val: Val) {
-        stack.append(val)
+    func push(_ v: V) {
+        stack.append(v)
     }
 }
 
@@ -138,17 +135,17 @@ class M {
 
 let m = M()
 
-let intType = Val.T("Int")
+let intType = T("Int")
 
 let addFun = Fun("+") {(m: M, returnPc: inout Pc) throws -> Void in
     let r = m.pop()!
     let l = m.pop()!
-    m.push(Val(intType, (l.data as! Int) + (r.data as! Int)))
+    m.push(V(intType, (l.data as! Int) + (r.data as! Int)))
     returnPc += 1
 }
 
-m.emit(.push(Val(intType, 6)))
-m.emit(.push(Val(intType, 4)))
+m.emit(.push(V(intType, 6)))
+m.emit(.push(V(intType, 4)))
 m.emit(.call(addFun))
 m.emit(.stop)
 

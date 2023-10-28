@@ -16,21 +16,18 @@
 
 /*
  First out is types and values.
+ Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
  */
 
-struct Val {
-    /*
-     Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
-     */
+class T {
+    let name: String
     
-    class T {
-        let name: String
-        
-        init(_ name: String) {
-            self.name = name
-        }
+    init(_ name: String) {
+        self.name = name
     }
+}
 
+struct V {
     let type: T
     let data: Any
 
@@ -87,7 +84,7 @@ class Fun {
 
 enum Op {
     case call(Fun)
-    case push(Val)
+    case push(V)
     case stop
     case yield
 }
@@ -98,7 +95,7 @@ class Task {
     typealias Id = Int
 
     let id: Id
-    var stack: [Val] = []
+    var stack: [V] = []
     var pc: Pc
 
     init(id: Id, startPc: Pc) {
@@ -142,8 +139,8 @@ class M {
             switch op {
             case let .call(target):
                 try pc = target.call(self, pc: pc)
-            case let .push(val):
-                push(val)
+            case let .push(v):
+                push(v)
                 pc += 1
                 break
             case .stop:
@@ -157,12 +154,12 @@ class M {
         }
     }
 
-    func pop() -> Val? {
+    func pop() -> V? {
         currentTask!.stack.removeLast()
     }
 
-    func push(_ val: Val) {
-        currentTask!.stack.append(val)
+    func push(_ v: V) {
+        currentTask!.stack.append(v)
     }
 
     func startTask(pc: Pc = 0) {
