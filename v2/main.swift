@@ -20,19 +20,19 @@
  Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
  */
 
-class ValType {
-    let name: String
-
-    init(_ name: String) {
-        self.name = name
-    }
-}
-
 struct Val {
-    let type: ValType
+    class T {
+        let name: String
+        
+        init(_ name: String) {
+            self.name = name
+        }
+    }
+
+    let type: T
     let data: Any
 
-    init(_ type: ValType, _ data: Any) {
+    init(_ type: T, _ data: Any) {
         self.type = type
         self.data = data
     }
