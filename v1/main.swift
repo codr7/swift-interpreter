@@ -14,7 +14,7 @@
  Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
  */
 
-class T {
+class ValueType {
     let name: String
     
     init(_ name: String) {
@@ -22,11 +22,11 @@ class T {
     }
 }
 
-struct V {
-    let type: T
+struct Value {
+    let type: ValueType
     let data: Any
 
-    init(_ type: T, _ data: Any) {
+    init(_ type: ValueType, _ data: Any) {
         self.type = type
         self.data = data
     }
@@ -79,7 +79,7 @@ class Fun {
 
 enum Op {
     case call(Fun)
-    case push(V)
+    case push(Value)
     case stop
 }
 
@@ -89,7 +89,7 @@ enum Op {
 
 class VM {
     var code: [Op] = []
-    var stack: [V] = []
+    var stack: [Value] = []
 
     func dumpStack() -> String {
         "[\(stack.map({$0.dump()}).joined(separator: " "))]"
@@ -118,12 +118,12 @@ class VM {
         }
     }
 
-    func pop() -> V? {
+    func pop() -> Value? {
         stack.removeLast()
     }
 
-    func push(_ v: V) {
-        stack.append(v)
+    func push(_ value: Value) {
+        stack.append(value)
     }
 }
 
@@ -135,17 +135,17 @@ class VM {
 
 let vm = VM()
 
-let intType = T("Int")
+let intType = ValueType("Int")
 
 let addFun = Fun("+") {(vm: VM, pc: inout PC) throws -> Void in
     let r = vm.pop()!
     let l = vm.pop()!
-    vm.push(V(intType, (l.data as! Int) + (r.data as! Int)))
+    vm.push(Value(intType, (l.data as! Int) + (r.data as! Int)))
     pc += 1
 }
 
-vm.emit(.push(V(intType, 6)))
-vm.emit(.push(V(intType, 4)))
+vm.emit(.push(Value(intType, 6)))
+vm.emit(.push(Value(intType, 4)))
 vm.emit(.call(addFun))
 vm.emit(.stop)
 

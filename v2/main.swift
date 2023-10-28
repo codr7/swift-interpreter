@@ -19,7 +19,7 @@
  Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
  */
 
-class T {
+class ValueType {
     let name: String
     
     init(_ name: String) {
@@ -27,11 +27,11 @@ class T {
     }
 }
 
-struct V {
-    let type: T
+struct Value {
+    let type: ValueType
     let data: Any
 
-    init(_ type: T, _ data: Any) {
+    init(_ type: ValueType, _ data: Any) {
         self.type = type
         self.data = data
     }
@@ -84,7 +84,7 @@ class Fun {
 
 enum Op {
     case call(Fun)
-    case push(V)
+    case push(Value)
     case stop
     case trace
     case yield
@@ -96,7 +96,7 @@ class Task {
     typealias Id = Int
 
     let id: Id
-    var stack: [V] = []
+    var stack: [Value] = []
     var pc: PC
 
     init(id: Id, startPc: PC) {
@@ -143,8 +143,8 @@ class VM {
             switch op {
             case let .call(target):
                 try target.call(self, pc: &pc)
-            case let .push(v):
-                push(v)
+            case let .push(value):
+                push(value)
                 pc += 1
                 break
             case .stop:
@@ -161,12 +161,12 @@ class VM {
         }
     }
 
-    func pop() -> V? {
+    func pop() -> Value? {
         currentTask!.stack.removeLast()
     }
 
-    func push(_ v: V) {
-        currentTask!.stack.append(v)
+    func push(_ value: Value) {
+        currentTask!.stack.append(value)
     }
 
     func startTask(pc: PC = 0) {
