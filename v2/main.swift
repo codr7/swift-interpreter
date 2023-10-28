@@ -11,7 +11,7 @@
  CHANGES
  -------
  v2:
- Added support for tasks, aka. fibers or green threads.
+ Added support for bytecode tracing and tasks, aka. fibers or green threads.
  ***/
 
 /*
@@ -86,6 +86,7 @@ enum Op {
     case call(Fun)
     case push(V)
     case stop
+    case trace
     case yield
 }
 
@@ -109,10 +110,12 @@ class Task {
  */
 
 class M {
+    var trace = false
     var code: [Op] = []
     var nextTaskId = 0
     var tasks: [Task] = []
     var currentTask: Task? {tasks[0]}
+    
     var pc: Pc {
         get {currentTask!.pc}
         set(pc) {currentTask!.pc = pc}
@@ -127,6 +130,7 @@ class M {
     }
 
     func emit(_ op: Op) {
+        if trace { code.append(.trace) }
         code.append(op)
     }
     
@@ -145,6 +149,9 @@ class M {
                 break
             case .stop:
                 break loop
+            case .trace:
+                pc += 1
+                print("\(pc) \(code[pc])")
             case .yield:
                 pc += 1
                 switchTask()
@@ -180,6 +187,7 @@ class M {
  */
 
 let m = M()
+m.trace = true
 
 let pingFun = Fun("ping") {(m: M, pc: Pc) throws -> Pc in
     print("ping \(m.currentTask!.id)")
@@ -203,8 +211,17 @@ try m.eval(fromPc: 0)
 /*
  Output:
 
- ping 0
- ping 1
- pong 0
- pong 1
+1 call(main.Fun)
+ping 0
+3 yield
+1 call(main.Fun)
+ping 1
+3 yield
+5 call(main.Fun)
+pong 0
+7 yield
+5 call(main.Fun)
+pong 1
+7 yield
+9 stop
  */
