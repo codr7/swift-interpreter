@@ -179,7 +179,7 @@ class M {
 /*
  Now we're ready to take it for a spin.
 
- We'll start two tasks that play ping pong.
+ We'll let two tasks play ping pong.
  */
 
 let m = M()
