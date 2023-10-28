@@ -41,7 +41,7 @@ struct V {
  as opposed to any random integer.
  */
 
-typealias Pc = Int
+typealias PC = Int
 
 /*
  Functions take the current program counter as a reference argument when called,
@@ -53,7 +53,7 @@ typealias Pc = Int
  */
 
 class Fun {
-    typealias Body = (VM, inout Pc) throws -> Void
+    typealias Body = (VM, inout PC) throws -> Void
     
     let name: String
     let body: Body
@@ -63,8 +63,8 @@ class Fun {
         self.body = body
     }
 
-    func call(_ vm: VM, returnPc: inout Pc) throws {
-        try body(vm, &returnPc)
+    func call(_ vm: VM, pc: inout PC) throws {
+        try body(vm, &pc)
     }
 }
 
@@ -99,7 +99,7 @@ class VM {
         code.append(op)
     }
     
-    func eval(fromPc: Pc) throws {
+    func eval(fromPc: PC) throws {
         var pc = fromPc
         
         loop: while true {
@@ -107,7 +107,7 @@ class VM {
  
             switch op {
             case let .call(target):
-                try target.call(self, returnPc: &pc)
+                try target.call(self, pc: &pc)
             case let .push(v):
                 stack.append(v)
                 pc += 1
@@ -137,11 +137,11 @@ let vm = VM()
 
 let intType = T("Int")
 
-let addFun = Fun("+") {(vm: VM, returnPc: inout Pc) throws -> Void in
+let addFun = Fun("+") {(vm: VM, pc: inout PC) throws -> Void in
     let r = vm.pop()!
     let l = vm.pop()!
     vm.push(V(intType, (l.data as! Int) + (r.data as! Int)))
-    returnPc += 1
+    pc += 1
 }
 
 vm.emit(.push(V(intType, 6)))

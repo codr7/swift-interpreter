@@ -46,7 +46,7 @@ struct V {
  as opposed to any random integer.
  */
 
-typealias Pc = Int
+typealias PC = Int
 
 /*
  Functions take the current program counter as a reference argument when called,
@@ -58,7 +58,7 @@ typealias Pc = Int
  */
 
 class Fun {
-    typealias Body = (VM, Pc) throws -> Pc
+    typealias Body = (VM, inout PC) throws -> Void
     
     let name: String
     let body: Body
@@ -68,8 +68,8 @@ class Fun {
         self.body = body
     }
 
-    func call(_ vm: VM, pc: Pc) throws -> Pc {
-        try body(vm, pc)
+    func call(_ vm: VM, pc: inout PC) throws {
+        try body(vm, &pc)
     }
 }
 
@@ -97,9 +97,9 @@ class Task {
 
     let id: Id
     var stack: [V] = []
-    var pc: Pc
+    var pc: PC
 
-    init(id: Id, startPc: Pc) {
+    init(id: Id, startPc: PC) {
         self.id = id
         self.pc = startPc
     }
@@ -116,7 +116,7 @@ class VM {
     var tasks: [Task] = []
     var currentTask: Task? {tasks[0]}
     
-    var pc: Pc {
+    var pc: PC {
         get {currentTask!.pc}
         set(pc) {currentTask!.pc = pc}
     }
@@ -134,7 +134,7 @@ class VM {
         code.append(op)
     }
     
-    func eval(fromPc: Pc) throws {
+    func eval(fromPc: PC) throws {
         pc = fromPc
         
         loop: while true {
@@ -142,7 +142,7 @@ class VM {
  
             switch op {
             case let .call(target):
-                try pc = target.call(self, pc: pc)
+                try target.call(self, pc: &pc)
             case let .push(v):
                 push(v)
                 pc += 1
@@ -169,7 +169,7 @@ class VM {
         currentTask!.stack.append(v)
     }
 
-    func startTask(pc: Pc = 0) {
+    func startTask(pc: PC = 0) {
         let t = Task(id: nextTaskId, startPc: pc)
         tasks.append(t)
         nextTaskId += 1
@@ -189,14 +189,14 @@ class VM {
 let vm = VM()
 vm.trace = true
 
-let pingFun = Fun("ping") {(vm: VM, pc: Pc) throws -> Pc in
+let pingFun = Fun("ping") {(vm: VM, pc: inout PC) throws in
     print("ping \(vm.currentTask!.id)")
-    return pc + 1
+    pc += 1
 }
 
-let pongFun = Fun("pong") {(vm: VM, pc: Pc) throws -> Pc in
+let pongFun = Fun("pong") {(vm: VM, pc: inout PC) throws in
     print("pong \(vm.currentTask!.id)")
-    return pc + 1
+    pc += 1
 }
 
 vm.emit(.call(pingFun))
