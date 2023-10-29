@@ -296,14 +296,19 @@ class VM {
                 push(value)
                 pc += 1
             case .stop:
+                if tasks.count == 1 {
+                    break loop
+                } else {
+                    tasks.removeFirst()
+                }
+                
                 break loop
             case .trace:
                 pc += 1
                 print("\(pc) \(code[pc])")
             case .yield:
                 pc += 1
-                switchTask()
-                pc = vm.currentTask!.pc
+                tasks.append(tasks.removeFirst())
             }
         }
     }
@@ -327,7 +332,6 @@ class VM {
     }
 
     func switchTask() {
-        tasks.append(tasks.removeFirst())
     }
 }
 
