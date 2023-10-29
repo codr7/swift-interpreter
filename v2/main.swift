@@ -1,7 +1,7 @@
 /* Version 2 */
 
 /*
- We use structs to represent values, every value has a type.
+ We'll use structs to represent values, every value has a type.
  Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
  */
 
@@ -76,13 +76,15 @@ enum Op {
     case yield
 }
 
+typealias Stack = [Value]
+
 /* Tasks represent independent flows of execution with separate stacks and program counters. */
 
 class Task {
     typealias Id = Int
 
     let id: Id
-    var stack: [Value] = []
+    var stack: Stack = []
     var pc: PC
 
     init(id: Id, startPc: PC) {
@@ -165,13 +167,23 @@ class VM {
 }
 
 /*
+ The humble beginnings of a standard library.
+ */
+
+let intType = ValueType("Int")
+
+let addFun = Fun("+") {(vm: VM, pc: inout PC) throws -> Void in
+    let r = vm.pop()!
+    let l = vm.pop()!
+    vm.push(Value(intType, (l.data as! Int) + (r.data as! Int)))
+    pc += 1
+}
+
+/*
  Now we're ready to take it for a spin.
 
- We'll start an extra task (there's already a main task) and yield between them a few times.
+ We'll start an extra task, in addition to the main task, and yield between them a few times.
    */
-
-let vm = VM()
-vm.trace = true
 
 let pingFun = Fun("ping") {(vm: VM, pc: inout PC) throws in
     print("ping \(vm.currentTask!.id)")
@@ -183,12 +195,13 @@ let pongFun = Fun("pong") {(vm: VM, pc: inout PC) throws in
     pc += 1
 }
 
+let vm = VM()
+vm.trace = true
 vm.emit(.call(pingFun))
 vm.emit(.yield)
 vm.emit(.call(pongFun))
 vm.emit(.yield)
 vm.emit(.stop)
-
 vm.startTask()
 try vm.eval(fromPc: 0)
 

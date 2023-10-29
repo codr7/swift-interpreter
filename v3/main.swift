@@ -1,7 +1,7 @@
 /* Version 3 */
 
 /*
- We use structs to represent values, every value has a type.
+ We'll use structs to represent values, every value has a type.
  Types allow specializing behaviour for differend kinds of values.
  */
 
@@ -42,8 +42,16 @@ struct Value: CustomStringConvertible {
     }
 }
 
+/*
+ Possible errors are defined by enums separated by category.
+ */
+
 public enum EmitError: Error {
     case unknownIdentifier(String)
+}
+
+public enum EvalError: Error {
+    case missingValue
 }
 
 /*
@@ -66,15 +74,21 @@ struct Fun: CustomStringConvertible {
     typealias Body = (VM, inout PC) throws -> Void
     
     let name: String
+    let arguments: [String]
     let body: Body
     var description: String { "Fun(name)" }
     
-    init(_ name: String, _ body: @escaping Body) {
+    init(_ name: String, _ arguments: [String], _ body: @escaping Body) {
         self.name = name
+        self.arguments = arguments
         self.body = body
     }
 
     func call(_ vm: VM, pc: inout PC) throws {
+        if vm.stack.count < arguments.count {
+            throw EvalError.missingValue
+        }
+        
         try body(vm, &pc)
     }
 }
@@ -104,6 +118,10 @@ struct Macro: CustomStringConvertible {
     }
 }
 
+/*
+ Namespaces map symbols to values, and are used for looking up identifiers when emitting forms.
+ */
+
 class Namespace {
     let parent: Namespace?
     var bindings: [String:Value] = [:]
@@ -127,7 +145,7 @@ class Namespace {
 }
 
 /*
- Forms are the bits and pieces that the syntax consists of, the initial step in converting code to bytecode
+ Forms are the bits and pieces that the syntax consists of, the initial step in converting code to 
  operations.
  */
 
@@ -198,13 +216,17 @@ enum Op {
     case yield
 }
 
-/* Tasks represent independent flows of execution with separate stacks and program counters. */
+typealias Stack = [Value]
+
+/*
+ Tasks represent independent flows of execution with separate stacks and program counters.
+ */
 
 class Task {
     typealias Id = Int
 
     let id: Id
-    var stack: [Value] = []
+    var stack: Stack = []
     var pc: PC
 
     init(id: Id, startPc: PC) {
@@ -212,19 +234,6 @@ class Task {
         self.pc = startPc
     }
 }
-
-class MacroType: ValueType {
-    init() {
-        super.init("Macro")
-    }
-
-    override func identifierEmit(_ value: Value, _ vm: VM,
-                        inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-        try (value.data as! Macro).emit(vm, inNamespace: ns, withArguments: &args)
-    }
-}
-
-let macroType = MacroType()
 
 /*
  The virtual machine is where the rubber finally meets the road.
@@ -241,6 +250,7 @@ class VM {
         set(pc) {currentTask!.pc = pc}
     }
 
+    var stack: Stack {currentTask!.stack}
     var tasks: [Task] = []
     var trace = false
     
@@ -272,13 +282,15 @@ class VM {
             case .nop:
                 pc += 1
             case let .or(endPc):
-                let l = peek()
-
-                if l!.toBool {
-                    pc = endPc
+                if let l = peek() {
+                    if l.toBool {
+                        pc = endPc
+                    } else {
+                        _ = pop()
+                        pc += 1
+                    }
                 } else {
-                    _ = pop()
-                    pc += 1
+                    throw EvalError.missingValue
                 }
             case let .push(value):
                 push(value)
@@ -320,13 +332,13 @@ class VM {
 }
 
 /*
- Now we're ready to take it for a spin.
-
- We'll create forms representing the following expression and emit the corresponding operations:
- 0 or 42
+ The humble beginnings of a standard library.
  */
 
-let vm = VM()
+let stdLib = Namespace()
+
+let funType = ValueType("Fun")
+stdLib["Fun"] = Value(metaType, funType)
 
 class IntType: ValueType {
     init() {
@@ -339,6 +351,24 @@ class IntType: ValueType {
 }
 
 let intType = IntType()
+stdLib["Int"] = Value(metaType, intType)
+
+class MacroType: ValueType {
+    init() {
+        super.init("Macro")
+    }
+
+    override func identifierEmit(_ value: Value, _ vm: VM,
+                        inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+        try (value.data as! Macro).emit(vm, inNamespace: ns, withArguments: &args)
+    }
+}
+
+let macroType = MacroType()
+stdLib["Macro"] = Value(metaType, macroType)
+
+let metaType = ValueType("Meta")
+stdLib["Meta"] = Value(metaType, metaType)
 
 let orMacro = Macro("or") {(vm: VM, ns: Namespace, args: inout [Form]) throws in
     let orPc = vm.emit(.nop)
@@ -346,17 +376,32 @@ let orMacro = Macro("or") {(vm: VM, ns: Namespace, args: inout [Form]) throws in
     vm.code[orPc] = .or(vm.emitPc)
 }
 
-let namespace = Namespace()
-namespace["or"] = Value(macroType, orMacro)
+stdLib["or"] = Value(macroType, orMacro)
 
+let addFun = Fun("+", ["left", "right"]) {(vm: VM, pc: inout PC) throws -> Void in
+    let r = vm.pop()!
+    let l = vm.pop()!
+    vm.push(Value(intType, (l.data as! Int) + (r.data as! Int)))
+    pc += 1
+}
+
+stdLib["+"] = Value(funType, addFun)
+
+/*
+ Now we're ready to take it for a spin.
+
+ We'll create forms representing the following expression and emit the corresponding operations:
+ 0 or 42
+ */
+
+let vm = VM()
 let forms: [Form] = [Literal(Value(intType, 0)), Identifier("or"), Literal(Value(intType, 42))]
-try forms.emit(vm, inNamespace: namespace)
+try forms.emit(vm, inNamespace: stdLib)
 vm.emit(.stop)
-
 try vm.eval(fromPc: 0)
 
 /*
  This prints [42], which is the result of '0 or 42'.
-*/
+ */
 
 print(vm.dumpStack())

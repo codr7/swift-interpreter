@@ -74,13 +74,15 @@ enum Op {
     case stop
 }
 
+typealias Stack = [Value]
+
 /*
  The virtual machine is where the rubber finally meets the road.
  */
 
 class VM {
     var code: [Op] = []
-    var stack: [Value] = []
+    var stack: Stack = []
 
     func dumpStack() -> String {
         "[\(stack.map({$0.dump()}).joined(separator: " "))]"
@@ -118,12 +120,8 @@ class VM {
 }
 
 /*
- Now we're ready to take it for a spin.
-
- We'll settle for some simple arithmetics this time around, just to get an idea how everything works.
+ The humble beginnings of a standard library.
  */
-
-let vm = VM()
 
 let intType = ValueType("Int")
 
@@ -134,11 +132,17 @@ let addFun = Fun("+") {(vm: VM, pc: inout PC) throws -> Void in
     pc += 1
 }
 
+/*
+ Now we're ready to take it for a spin.
+
+ We'll settle for some simple arithmetics this time around, just to get an idea how everything works.
+ */
+
+let vm = VM()
 vm.emit(.push(Value(intType, 6)))
 vm.emit(.push(Value(intType, 4)))
 vm.emit(.call(addFun))
 vm.emit(.stop)
-
 try vm.eval(fromPc: 0)
 
 /*
