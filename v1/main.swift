@@ -102,7 +102,6 @@ class VM {
             case let .push(v):
                 stack.append(v)
                 pc += 1
-                break
             case .stop:
                 break loop
             }

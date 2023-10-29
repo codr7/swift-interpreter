@@ -291,7 +291,7 @@ class VM {
             case .yield:
                 pc += 1
                 switchTask()
-                try eval(fromPc: vm.currentTask!.pc)
+                pc = vm.currentTask!.pc
             }
         }
     }

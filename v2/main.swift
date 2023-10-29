@@ -132,7 +132,6 @@ class VM {
             case let .push(value):
                 push(value)
                 pc += 1
-                break
             case .stop:
                 break loop
             case .trace:
@@ -141,8 +140,7 @@ class VM {
             case .yield:
                 pc += 1
                 switchTask()
-                try eval(fromPc: vm.currentTask!.pc)
-                break
+                pc = vm.currentTask!.pc
             }
         }
     }
@@ -169,8 +167,8 @@ class VM {
 /*
  Now we're ready to take it for a spin.
 
- We'll let two tasks play ping pong.
- */
+ We'll start an extra task (there's already a main task) and yield between them a few times.
+   */
 
 let vm = VM()
 vm.trace = true
