@@ -23,10 +23,10 @@ Each design has it's strengths and weaknesses; stacks need to be shuffled and re
 Each version focuses on a one or a few key areas of functionality.
 
 ### v1
-Implements a minimum viable virtual machine that can push values on a stack and call primitive functions.
+Implement a minimum viable virtual machine with a stack and primitive functions.
 
 ### v2
-Adds support for bytecode tracing for debugging purposes and tasks, aka. fibers or green threads.
+Add tracing for debugging purposes and tasks, aka. fibers or green threads.
 
 ### v3
-Adds support for namespaces, forms and macros.
+Add namespaces, forms, macros and improve error handling.
