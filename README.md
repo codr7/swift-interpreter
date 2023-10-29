@@ -4,7 +4,7 @@ yet substantial enough to continue building upon and playing around with.<br/>
 <br/>
 A taste of interpreters, Swift, or both; depending on where you're coming from.<br/>
 <br/>
-Rather than starting with parsing; we'll work from the bottom up, starting with the virtual machine and finishing with adding syntax on top.
+Rather than starting with parsing; we'll work from the bottom up, starting with the virtual machine and finally adding syntax on top.
 
 ## motivation
 Because I consider learning how our tools are constructed is an essential part of becoming a software developer.<br/>
