@@ -1,4 +1,2 @@
-* add v3 with forms
-** add namespaces
-** Form.Id, Form.Literal
-** add macros
+* finish v3
+** implement macro body

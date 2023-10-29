@@ -43,7 +43,7 @@ typealias PC = Int
  But once we get to user defined functions, this allows us to jump to the actual code of the called function.
  */
 
-class Fun {
+struct Fun {
     typealias Body = (VM, inout PC) throws -> Void
     
     let name: String
@@ -111,7 +111,7 @@ class VM {
         startTask()
     }
     
-    func dumpStack() async -> String {
+    func dumpStack() -> String {
         "[\(currentTask!.stack.map({$0.dump()}).joined(separator: " "))]"
     }
 
@@ -141,7 +141,7 @@ class VM {
             case .yield:
                 pc += 1
                 switchTask()
-                try! eval(fromPc: vm.currentTask!.pc)
+                try eval(fromPc: vm.currentTask!.pc)
                 break
             }
         }
