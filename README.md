@@ -17,7 +17,7 @@ To try it out; simply download and install [Swift](https://www.swift.org/downloa
 ## design
 The virtual machine we'll build is stack based, as opposed to register based.<br/>
 <br/>
-Each design has it's strengths and weaknesses; stacks need to be shuffled and registers allocated; but I find stacks more elegant and easy to reason about than registers.
+Each design has it's strengths and weaknesses; stacks need to be shuffled and registers allocated; but I find stacks more elegant and easy to reason about.
 
 ## versions
 Each version focuses on a one or a few key areas of functionality.
