@@ -330,9 +330,6 @@ class VM {
         tasks.append(t)
         nextTaskId += 1
     }
-
-    func switchTask() {
-    }
 }
 
 /*
