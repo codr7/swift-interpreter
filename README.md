@@ -12,7 +12,7 @@ Because I consider learning how our tools are constructed is an essential part o
 In addition, interpreters are useful in many situations; configuration languages, expression evaluators, template languages and scripting languages just to name a few.
 
 ## setup
-To try it out; simply download and install Swift, `cd` into a version and run `swift main.swift`.
+To try it out; simply download and install [Swift](https://www.swift.org/download/), `cd` into a version and run `swift main.swift`.
 
 ## design
 The virtual machine we'll build is stack based, as opposed to register based.<br/>
