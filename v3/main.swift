@@ -5,8 +5,9 @@
  Types allow specializing behaviour for differend kinds of values.
  */
 
-class ValueType {
+class ValueType: CustomStringConvertible {
     let name: String
+    var description: String { name }
     
     init(_ name: String) {
         self.name = name
