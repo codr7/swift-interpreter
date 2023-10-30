@@ -2,6 +2,26 @@
 
 /*
  We'll use structs to represent values, every value has a type.
+ */
+
+struct Value: CustomStringConvertible {
+    let type: ValueType
+    let data: Any
+
+    var description: String { type.dump(self) }
+    var toBool: Bool { type.toBool(self) }
+    
+    init(_ type: ValueType, _ data: Any) {
+        self.type = type
+        self.data = data
+    }
+
+    func identifierEmit(_ vm: VM, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+        try self.type.identifierEmit(self, vm, inNamespace: ns, withArguments: &args)
+    }
+}
+
+/*
  Types allow specializing behaviour for differend kinds of values.
  */
 
@@ -23,23 +43,6 @@ class ValueType: CustomStringConvertible {
 
     func toBool(_ value: Value) -> Bool {
         true
-    }
-}
-
-struct Value: CustomStringConvertible {
-    let type: ValueType
-    let data: Any
-
-    var description: String { type.dump(self) }
-    var toBool: Bool { type.toBool(self) }
-    
-    init(_ type: ValueType, _ data: Any) {
-        self.type = type
-        self.data = data
-    }
-
-    func identifierEmit(_ vm: VM, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-        try self.type.identifierEmit(self, vm, inNamespace: ns, withArguments: &args)
     }
 }
 

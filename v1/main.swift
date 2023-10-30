@@ -2,7 +2,6 @@
 
 /*
  We use structs to represent values, every value has a type.
- Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
  */
 
 struct Value {
@@ -18,6 +17,10 @@ struct Value {
         "\(data)"
     }
 }
+
+/*
+ Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
+ */
 
 class ValueType {
     let name: String
