@@ -30,3 +30,6 @@ Add tracing for debugging purposes and tasks, aka. fibers or green threads.
 
 ### v3
 Add namespaces, forms, macros and improve error handling.
+
+### v4
+Add call stack and user defined functions.

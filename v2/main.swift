@@ -1,4 +1,6 @@
-/* Version 2 */
+/*
+ Version 2
+ */
 
 /*
  We'll use structs to represent values, every value has a type.
@@ -41,12 +43,12 @@ typealias PC = Int
  Functions take the current program counter as a reference argument when called,
  which allows them to decide where to return to.
 
- This time around; we'll only deal with primitives, which typically simply increase the program counter.
+ We'll only deal with primitives for now, which typically simply increase the program counter.
  
  But once we get to user defined functions, this allows us to jump to the actual code of the called function.
  */
 
-struct Fun {
+struct Function {
     typealias Body = (VM, inout PC) throws -> Void
     
     let name: String
@@ -72,7 +74,7 @@ struct Fun {
  */
 
 enum Op {
-    case call(Fun)
+    case call(Function)
     case push(Value)
     case stop
     case trace
@@ -174,7 +176,7 @@ class VM {
 
 let intType = ValueType("Int")
 
-let addFun = Fun("+") {(vm: VM, pc: inout PC) throws -> Void in
+let addFunction = Function("+") {(vm, pc) throws in
     let r = vm.pop()!
     let l = vm.pop()!
     vm.push(Value(intType, (l.data as! Int) + (r.data as! Int)))
@@ -187,21 +189,21 @@ let addFun = Fun("+") {(vm: VM, pc: inout PC) throws -> Void in
  We'll start an extra task, in addition to the main task, and yield between them a few times.
    */
 
-let pingFun = Fun("ping") {(vm: VM, pc: inout PC) throws in
+let pingFunction = Function("ping") {(vm, pc) throws in
     print("ping \(vm.currentTask!.id)")
     pc += 1
 }
 
-let pongFun = Fun("pong") {(vm: VM, pc: inout PC) throws in
+let pongFunction = Function("pong") {(vm, pc) throws in
     print("pong \(vm.currentTask!.id)")
     pc += 1
 }
 
 let vm = VM()
 vm.trace = true
-vm.emit(.call(pingFun))
+vm.emit(.call(pingFunction))
 vm.emit(.yield)
-vm.emit(.call(pongFun))
+vm.emit(.call(pongFunction))
 vm.emit(.yield)
 vm.emit(.stop)
 vm.startTask()
@@ -210,17 +212,18 @@ try vm.eval(fromPc: 0)
 /*
  Output:
 
-1 call(main.Fun)
+1 call(main.Function(name: "ping", body: (Function)))
 ping 0
 3 yield
-1 call(main.Fun)
+1 call(main.Function(name: "ping", body: (Function)))
 ping 1
 3 yield
-5 call(main.Fun)
+5 call(main.Function(name: "pong", body: (Function)))
 pong 0
 7 yield
-5 call(main.Fun)
+5 call(main.Function(name: "pong", body: (Function)))
 pong 1
 7 yield
+9 stop
 9 stop
  */

@@ -1,4 +1,6 @@
-/* Version 1 */
+/*
+ Version 1
+ */
 
 /*
  We use structs to represent values, every value has a type.
@@ -41,12 +43,12 @@ typealias PC = Int
  Functions take the current program counter as a reference argument when called,
  which allows them to decide where to return to.
 
- This time around; we'll only deal with primitives, which typically simply increase the program counter.
+ We'll only deal with primitives for now, which typically simply increase the program counter.
  
  But once we get to user defined functions, this allows us to jump to the actual code of the called function.
  */
 
-struct Fun {
+struct Function {
     typealias Body = (VM, inout PC) throws -> Void
     
     let name: String
@@ -72,7 +74,7 @@ struct Fun {
  */
 
 enum Op {
-    case call(Fun)
+    case call(Function)
     case push(Value)
     case stop
 }
@@ -128,7 +130,7 @@ class VM {
 
 let intType = ValueType("Int")
 
-let addFun = Fun("+") {(vm: VM, pc: inout PC) throws -> Void in
+let addFunction = Function("+") {(vm, pc) throws in
     let r = vm.pop()!
     let l = vm.pop()!
     vm.push(Value(intType, (l.data as! Int) + (r.data as! Int)))
@@ -144,7 +146,7 @@ let addFun = Fun("+") {(vm: VM, pc: inout PC) throws -> Void in
 let vm = VM()
 vm.emit(.push(Value(intType, 6)))
 vm.emit(.push(Value(intType, 4)))
-vm.emit(.call(addFun))
+vm.emit(.call(addFunction))
 vm.emit(.stop)
 try vm.eval(fromPc: 0)
 

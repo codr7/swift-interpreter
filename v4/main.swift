@@ -1,5 +1,5 @@
 /*
- Version 3
+ Version 4
  */
 
 /*
@@ -77,7 +77,24 @@ typealias PC = Int
  */
 
 struct Function: CustomStringConvertible {
-    typealias Body = (VM, inout PC) throws -> Void
+    /*
+     Calls are used to construct the call stack for user defined functions.
+     They keep track of the target being called, it's arguments and the return PC.
+     */
+    
+    struct Call {
+        let target: Function
+        let stackOffset: Int
+        let returnPc: PC
+        
+        init(_ target: Function, _ stackOffset: Int, _ returnPc: PC) {
+            self.target = target
+            self.stackOffset = stackOffset
+            self.returnPc = returnPc
+        }
+    }
+
+    typealias Body = (Function, VM, inout PC) throws -> Void
     
     let name: String
     let arguments: [String]
@@ -95,7 +112,7 @@ struct Function: CustomStringConvertible {
             throw EvalError.missingValue
         }
         
-        try body(vm, &pc)
+        try body(self, vm, &pc)
     }
 }
 
@@ -107,7 +124,7 @@ struct Function: CustomStringConvertible {
  */
 
 struct Macro: CustomStringConvertible {
-    typealias Body = (VM, Namespace, inout [Form]) throws -> Void
+    typealias Body = (Macro, VM, Namespace, inout [Form]) throws -> Void
     
     let name: String
     let body: Body
@@ -120,7 +137,7 @@ struct Macro: CustomStringConvertible {
     }
 
     func emit(_ vm: VM, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-        try body(vm, ns, &args)
+        try body(self, vm, ns, &args)
     }
 }
 
@@ -180,6 +197,19 @@ class Identifier: BasicForm, Form {
     }
 }
 
+class List: BasicForm, Form {
+    let items: [Form]
+    override var description: String { "(\(items.map({"\($0)"}).joined(separator: " "))" }
+
+    init(_ items: [Form]) {
+        self.items = items
+    }
+
+    func emit(_ vm: VM, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+        try items.emit(vm, inNamespace: ns)
+    }
+}
+
 class Literal: BasicForm, Form {
     let value: Value
     override var description: String { "\(value)" }
@@ -213,9 +243,12 @@ extension [Form] {
  */
 
 enum Op {
+    case argument(Int)
     case call(Function)
+    case goto(PC)
     case nop
     case or(PC)
+    case popCall(Function)
     case push(Value)
     case stop
     case trace
@@ -232,8 +265,10 @@ class Task {
     typealias Id = Int
 
     let id: Id
-    var stack: Stack = []
+
+    var callStack: [Function.Call] = []
     var pc: PC
+    var stack: Stack = []
 
     init(id: Id, startPc: PC) {
         self.id = id
@@ -246,6 +281,11 @@ class Task {
  */
 
 class VM {    
+    var callStack: [Function.Call] {
+        get {currentTask!.callStack}
+        set(v) {currentTask!.callStack = v} 
+    }
+    
     var code: [Op] = []
     var currentTask: Task? {tasks[0]}
     var emitPc: PC {code.count}
@@ -256,7 +296,11 @@ class VM {
         set(pc) {currentTask!.pc = pc}
     }
 
-    var stack: Stack {currentTask!.stack}
+    var stack: Stack {
+        get {currentTask!.stack}
+        set(v) {currentTask!.stack = v}
+    }
+    
     var tasks: [Task] = []
     var trace = false
     
@@ -283,8 +327,14 @@ class VM {
             let op = code[pc]
  
             switch op {
+            case let.argument(index):
+                vm.push(vm.stack[vm.callStack.last!.stackOffset+index])
+                pc += 1
             case let .call(target):
+                pc += 1
                 try target.call(self, pc: &pc)
+            case let .goto(targetPc):
+                pc = targetPc
             case .nop:
                 pc += 1
             case let .or(endPc):
@@ -298,6 +348,10 @@ class VM {
                 } else {
                     throw EvalError.missingValue
                 }
+            case let .popCall(target):
+                let c = vm.callStack.removeLast()
+                vm.stack.removeSubrange(c.stackOffset..<c.stackOffset+target.arguments.count)
+                pc = c.returnPc
             case let .push(value):
                 push(value)
                 pc += 1
@@ -344,7 +398,37 @@ class VM {
 
 let stdLib = Namespace()
 
-let functionType = ValueType("Function")
+class ArgumentType: ValueType {
+    init() {
+        super.init("Argument")
+    }
+
+    override func identifierEmit(_ value: Value, _ vm: VM,
+                                 inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+        vm.emit(.argument(value.data as! Int))
+    }
+}
+
+let argumentType = ArgumentType()
+
+class FunctionType: ValueType {
+    init() {
+        super.init("Function")
+    }
+
+    override func identifierEmit(_ value: Value, _ vm: VM,
+                                 inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+        let f = value.data as! Function
+        
+        for _ in 0..<f.arguments.count {
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+        }
+
+        vm.emit(.call(f))
+    }
+}
+
+let functionType = FunctionType()
 stdLib["Function"] = Value(metaType, functionType)
 
 class IntType: ValueType {
@@ -377,16 +461,55 @@ stdLib["Macro"] = Value(metaType, macroType)
 let metaType = ValueType("Meta")
 stdLib["Meta"] = Value(metaType, metaType)
 
-let orMacro = Macro("or") {(vm, ns, args) throws in
+class StringType: ValueType {
+    init() {
+        super.init("String")
+    }
+
+    override func toBool(_ value: Value) -> Bool {
+        (value.data as! String).count != 0
+    }
+}
+
+let stringType = StringType()
+stdLib["String"] = Value(metaType, stringType)
+
+let functionMacro = Macro("function") {(_, vm, ns, args) throws in
+    let id = (args.removeFirst() as! Identifier).name
+    let fargs = (args.removeFirst() as! List).items.map {($0 as! Identifier).name}
+    let body = args.removeFirst()
+    let skip = vm.emit(.nop)
+    let startPc = vm.emitPc
+
+    let f = Function(id, fargs) {(f, vm, pc) throws in
+        vm.callStack.append(Function.Call(f, vm.stack.count-fargs.count, pc))
+        pc = startPc
+    }
+
+    ns[id] = Value(functionType, f)
+    let fns = Namespace(ns)
+
+    for i in 0..<fargs.count {
+        fns[fargs[i]] = Value(argumentType, i)
+    }
+
+    try body.emit(vm, inNamespace: fns, withArguments: &args)
+    vm.emit(.popCall(f))
+    vm.code[skip] = .goto(vm.emitPc)
+}
+
+stdLib["function"] = Value(macroType, functionMacro)
+
+let orMacro = Macro("or") {(_, vm, ns, args) throws in
     try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
-    let orPc = vm.emit(.nop)
+    let or = vm.emit(.nop)
     try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
-    vm.code[orPc] = .or(vm.emitPc)
+    vm.code[or] = .or(vm.emitPc)
 }
 
 stdLib["or"] = Value(macroType, orMacro)
 
-let addFunction = Function("+", ["left", "right"]) {(vm, pc) throws in
+let addFunction = Function("+", ["left", "right"]) {(_, vm, pc) throws in
     let r = vm.pop()!
     let l = vm.pop()!
     vm.push(Value(intType, (l.data as! Int) + (r.data as! Int)))
@@ -398,18 +521,27 @@ stdLib["+"] = Value(functionType, addFunction)
 /*
  Now we're ready to take it for a spin.
 
- We'll create forms representing the following expression and emit the corresponding operations:
- or 1 3
+ We'll generate a user defined function called 'identity' that simply returns its argument.
+ Right after the call we'll push the string "Returned" to verify that we end up in the right place.
  */
 
 let vm = VM()
-let forms: [Form] = [Identifier("or"), Literal(Value(intType, 1)), Literal(Value(intType, 3))]
-try forms.emit(vm, inNamespace: stdLib)
+
+let functionForms: [Form] = [Identifier("function"),
+                             Identifier("identity"),
+                             List([Identifier("value")]),
+                             Identifier("value")]
+
+try functionForms.emit(vm, inNamespace: stdLib)
+let callForms: [Form] = [Identifier("identity"), Literal(Value(intType, 42))]
+try callForms.emit(vm, inNamespace: stdLib)
+
+vm.emit(.push(Value(stringType, "Returned")))
 vm.emit(.stop)
 try vm.eval(fromPc: 0)
 
 /*
- This prints [1], since `or` short-circuits.
+ This prints [42 "Returned"].
  */
 
 print(vm.dumpStack())
