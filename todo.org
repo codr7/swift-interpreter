@@ -1,3 +1,0 @@
-* bind arguments in body emit
-** add argument type
-** add argument op
