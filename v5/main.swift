@@ -1,5 +1,5 @@
 /*
- Version 4
+ Version 5
  */
 
 /*
@@ -18,9 +18,9 @@ struct Value: CustomStringConvertible {
         self.data = data
     }
 
-    func identifierEmit(_ vm: VM,
+    func identifierEmit(_ vm: VM, at pos: Position,
                         inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-        try self.type.identifierEmit(self, vm, inNamespace: ns, withArguments: &args)
+        try self.type.identifierEmit(self, vm, at: pos, inNamespace: ns, withArguments: &args)
     }
 }
 
@@ -40,7 +40,8 @@ class ValueType: CustomStringConvertible {
         "\(value.data)"        
     }
 
-    func identifierEmit(_ value: Value, _ vm: VM, inNamespace: Namespace, withArguments: inout [Form]) throws {
+    func identifierEmit(_ value: Value, _ vm: VM, at: Position,
+                        inNamespace: Namespace, withArguments: inout [Form]) throws {
         vm.emit(.push(value))
     }
 
@@ -54,12 +55,17 @@ class ValueType: CustomStringConvertible {
  */
 
 enum EmitError: Error {
-    case missingArgument
-    case unknownIdentifier(String)
+    case missingArgument(Position)
+    case unknownIdentifier(Position, String)
 }
 
 enum EvalError: Error {
-    case missingValue
+    case missingValue(Position)
+}
+
+enum ReadError: Error {
+    case openList(Position)
+    case openString(Position)
 }
 
 /*
@@ -109,9 +115,9 @@ struct Function: CustomStringConvertible {
         self.body = body
     }
 
-    func call(_ vm: VM) throws {
+    func call(_ vm: VM, at pos: Position) throws {
         if vm.stack.count < arguments.count {
-            throw EvalError.missingValue
+            throw EvalError.missingValue(pos)
         }
         
         try body(self, vm)
@@ -126,7 +132,7 @@ struct Function: CustomStringConvertible {
  */
 
 struct Macro: CustomStringConvertible {
-    typealias Body = (Macro, VM, Namespace, inout [Form]) throws -> Void
+    typealias Body = (Macro, VM, Position, Namespace, inout [Form]) throws -> Void
     
     let name: String
     let body: Body
@@ -138,8 +144,8 @@ struct Macro: CustomStringConvertible {
         self.body = body
     }
 
-    func emit(_ vm: VM, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-        try body(self, vm, ns, &args)
+    func emit(_ vm: VM, at pos: Position, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+        try body(self, vm, pos, ns, &args)
     }
 }
 
@@ -170,31 +176,57 @@ class Namespace {
 }
 
 /*
+ Positions are used to track source code locations.
+ */
+
+struct Position: CustomStringConvertible {
+    let source: String
+
+    var column: Int
+    var description: String { "\(source)@\(line):\(column)" }
+    var line: Int
+
+    init(_ source: String, line: Int = 1, column: Int = 0) {
+        self.source = source
+        self.line = line
+        self.column = column
+    }
+}
+
+/*
  Forms are the bits and pieces that the syntax consists of, the initial step in converting code to 
  operations.
  */
 
 protocol Form: CustomStringConvertible {
+    var position: Position {get}
     func emit(_ vm: VM, inNamespace: Namespace, withArguments: inout [Form]) throws
 }
 
-class BasicForm {    
+class BasicForm {
+    let position: Position
     var description: String { "\(self)" }
+
+    init(_ position: Position) {
+        self.position = position
+    }
 }
 
 class Identifier: BasicForm, Form {    
     let name: String
     override var description: String { name }
     
-    init(_ name: String) {
+    init(_ position: Position, _ name: String) {
         self.name = name
+        super.init(position)
     }
 
-    func emit(_ vm: VM, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+    func emit(_ vm: VM,
+              inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
         if let value = ns[name] {
-            try value.identifierEmit(vm, inNamespace: ns, withArguments: &args)
+            try value.identifierEmit(vm, at: position, inNamespace: ns, withArguments: &args)
         } else {
-            throw EmitError.unknownIdentifier(name)
+            throw EmitError.unknownIdentifier(position, name)
         }
     }
 }
@@ -203,11 +235,13 @@ class List: BasicForm, Form {
     let items: [Form]
     override var description: String { "(\(items.map({"\($0)"}).joined(separator: " "))" }
 
-    init(_ items: [Form]) {
+    init(_ position: Position, _ items: [Form]) {
         self.items = items
+        super.init(position)
     }
 
-    func emit(_ vm: VM, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+    func emit(_ vm: VM,
+              inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
         try items.emit(vm, inNamespace: ns)
     }
 }
@@ -216,11 +250,13 @@ class Literal: BasicForm, Form {
     let value: Value
     override var description: String { "\(value)" }
 
-    init(_ value: Value) {
+    init(_ position: Position, _ value: Value) {
         self.value = value
+        super.init(position)
     }
 
-    func emit(_ vm: VM, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+    func emit(_ vm: VM,
+              inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
         vm.emit(.push(value))
     }
 }
@@ -246,13 +282,14 @@ extension [Form] {
 
 enum Op {
     case argument(Int)
-    case call(Function)
+    case call(Position, Function)
     case goto(PC)
     case nop
-    case or(PC)
+    case or(Position, PC)
     case popCall(Function)
     case push(Value)
     case stop
+    case task(PC)
     case trace
 }
 
@@ -326,19 +363,19 @@ class VM {
         
         loop: while true {
             let op = code[pc]
- 
+            
             switch op {
             case let.argument(index):
                 vm.push(vm.stack[vm.callStack.last!.stackOffset+index])
                 pc += 1
-            case let .call(target):
+            case let .call(pos, target):
                 pc += 1
-                try target.call(self)
+                try target.call(self, at: pos)
             case let .goto(targetPc):
                 pc = targetPc
             case .nop:
                 pc += 1
-            case let .or(endPc):
+            case let .or(pos, endPc):
                 if let l = peek() {
                     if l.toBool {
                         pc = endPc
@@ -347,7 +384,7 @@ class VM {
                         pc += 1
                     }
                 } else {
-                    throw EvalError.missingValue
+                    throw EvalError.missingValue(pos)
                 }
             case let .popCall(target):
                 let c = vm.callStack.removeLast()
@@ -358,6 +395,9 @@ class VM {
                 pc += 1
             case .stop:
                 break loop
+            case let .task(endPc):
+                startTask(pc: pc+1)
+                pc = endPc
             case .trace:
                 pc += 1
                 print("\(pc) \(code[pc])")
@@ -385,6 +425,183 @@ class VM {
 }
 
 /*
+ Streams are used to simplify reading input from strings.
+ */
+
+struct Stream {
+    var data: String
+
+    init(_ data: String = "") {
+        self.data = data
+    }
+
+    mutating func append(_ data: String) {
+        self.data.append(data)
+    }
+    
+    func peekChar() -> Character? {
+        return data.first
+    }
+    
+    mutating func popChar() -> Character? {
+        data.isEmpty ? nil : data.removeFirst()
+    }
+
+    mutating func pushChar(_ char: Character) {
+        data.insert(char, at: data.startIndex)
+    }
+}
+
+/*
+ Readers convert source code to forms.
+ */
+
+typealias Reader = (_ input: inout Stream, _ pos: inout Position) throws -> Form?
+
+let readers = [readWhitespace, readInt, readList, readString, readIdentifier]
+
+func readForm(_ input: inout Stream, _ pos: inout Position) throws -> Form? {
+    for r in readers {
+        if let f = try r(&input, &pos) {
+            return f
+        }
+    }
+
+    return nil
+}
+
+func readForms(_ reader: Reader, _ input: inout Stream, _ pos: inout Position) throws -> [Form] {
+    var output: [Form] = []
+    
+    while let f = try reader(&input, &pos) {
+        output.append(f)
+    }
+
+    return output
+}
+
+func readIdentifier(_ input: inout Stream, _ pos: inout Position) throws -> Form? {
+    let fpos = pos
+    var name = ""
+    
+    while let c = input.popChar() {
+        if c.isWhitespace || c == "(" || c == ")" {
+            input.pushChar(c)
+            break
+        }
+        
+        name.append(c)
+        pos.column += 1
+    }
+    
+    return (name.count == 0) ? nil : Identifier(fpos, name)
+}
+
+func readInt(_ input: inout Stream, _ pos: inout Position) throws -> Form? {
+    let fpos = pos
+    var v = 0
+    var neg = false
+    
+    let c = input.popChar()
+    if c == nil { return nil }
+    
+    if c == "-" {
+        if let c = input.popChar() {
+            if c.isNumber {
+                neg = true
+            } else {
+                input.pushChar(c)
+                input.pushChar("-")
+            }
+        }
+    } else {
+        input.pushChar(c!)
+    }
+    
+    while let c = input.popChar() {
+        if !c.isNumber {
+            input.pushChar(c)
+            break
+        }
+        
+        v *= 10
+        v += c.hexDigitValue!
+        pos.column += 1
+    }
+    
+    return (pos.column == fpos.column) ? nil : Literal(fpos, Value(intType, neg ? -v : v))
+}
+
+func readList(_ input: inout Stream, _ pos: inout Position) throws -> Form? {
+    let fpos = pos
+    var c = input.popChar()
+    
+    if c != "(" {
+        if c != nil { input.pushChar(c!) }
+        return nil
+    }
+    
+    pos.column += 1
+    var items: [Form] = []
+
+    while true {
+        _ = try readWhitespace(&input, &pos)
+        c = input.popChar()
+        if c == nil || c == ")" { break }
+        input.pushChar(c!)
+
+        if let f = try readForm(&input, &pos) {
+            items.append(f)
+        } else {
+            break
+        }
+    }
+
+    if c != ")" { throw ReadError.openList(fpos) }
+    pos.column += 1
+    
+    return List(fpos, items)
+}
+
+func readString(_ input: inout Stream, _ pos: inout Position) throws -> Form? {
+    let fpos = pos
+    var c = input.popChar()
+    
+    if c != "\"" {
+        if c != nil { input.pushChar(c!) }
+        return nil
+    }
+    
+    pos.column += 1
+    var body: [Character] = []
+
+    while true {
+        c = input.popChar()
+        if c == nil || c == "\"" { break }
+        body.append(c!)
+    }
+
+    if c != "\"" { throw ReadError.openString(fpos) }
+    pos.column += 1
+    return Literal(fpos, Value(stringType, String(body)))
+}
+
+func readWhitespace(_ input: inout Stream, _ pos: inout Position) throws -> Form? {
+    while let c = input.popChar() {
+        if c.isNewline {
+            pos.line += 1
+        } else if c.isWhitespace {
+            pos.column += 1
+        } else {
+            input.pushChar(c)
+            break
+        }
+    }
+    
+    return nil
+}
+
+/*
  The humble beginnings of a standard library.
  */
 
@@ -403,7 +620,7 @@ class ArgumentType: ValueType {
         super.init("Argument")
     }
 
-    override func identifierEmit(_ value: Value, _ vm: VM,
+    override func identifierEmit(_ value: Value, _ vm: VM, at pos: Position,
                                  inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
         vm.emit(.argument(value.data as! Int))
     }
@@ -416,19 +633,19 @@ class FunctionType: ValueType {
         super.init("Function")
     }
 
-    override func identifierEmit(_ value: Value, _ vm: VM,
+    override func identifierEmit(_ value: Value, _ vm: VM, at pos: Position,
                                  inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
         let f = value.data as! Function
         
         for _ in 0..<f.arguments.count {
             if args.isEmpty {
-                throw EmitError.missingArgument
+                throw EmitError.missingArgument(pos)
             }
-            
+
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
         }
 
-        vm.emit(.call(f))
+        vm.emit(.call(pos, f))
     }
 }
 
@@ -453,9 +670,9 @@ class MacroType: ValueType {
         super.init("Macro")
     }
 
-    override func identifierEmit(_ value: Value, _ vm: VM,
-                        inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-        try (value.data as! Macro).emit(vm, inNamespace: ns, withArguments: &args)
+    override func identifierEmit(_ value: Value, _ vm: VM, at pos: Position,
+                                 inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+        try (value.data as! Macro).emit(vm, at: pos, inNamespace: ns, withArguments: &args)
     }
 }
 
@@ -478,7 +695,7 @@ class StringType: ValueType {
 let stringType = StringType()
 stdLib["String"] = Value(metaType, stringType)
 
-let functionMacro = Macro("function") {(_, vm, ns, args) throws in
+stdMacro("function") {(_, vm, pos, ns, args) throws in
     let id = (args.removeFirst() as! Identifier).name
     let fargs = (args.removeFirst() as! List).items.map {($0 as! Identifier).name}
     let body = args.removeFirst()
@@ -502,13 +719,18 @@ let functionMacro = Macro("function") {(_, vm, ns, args) throws in
     vm.code[skip] = .goto(vm.emitPc)
 }
 
-stdLib["function"] = Value(macroType, functionMacro)
-
-stdMacro("or") {(_, vm, ns, args) throws in
+stdMacro("or") {(_, vm, pos, ns, args) throws in
     try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
     let or = vm.emit(.nop)
     try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
-    vm.code[or] = .or(vm.emitPc)
+    vm.code[or] = .or(pos, vm.emitPc)
+}
+
+stdMacro("task") {(_, vm, pos, ns, args) throws in
+    let task = vm.emit(.nop)
+    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+    vm.emit(.stop)
+    vm.code[task] = .task(vm.emitPc)
 }
 
 stdFunction("+", ["left", "right"]) {(_, vm) throws in
@@ -521,30 +743,42 @@ stdFunction("yield", []) {(_, vm) throws in
     vm.tasks.append(vm.tasks.removeFirst())
 }
 
+func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
+    var input = Stream()
+    
+    while let line = readLine(strippingNewline: false) {
+        if line == "\n" {
+            var pos = Position("repl")
+            let fs = try readForms(reader, &input, &pos)
+            let pc = vm.emitPc
+            try fs.emit(vm, inNamespace: ns)
+            vm.emit(.stop)
+            try vm.eval(fromPc: pc)
+            print(vm.dumpStack())
+        } else {
+            input.append(line)
+        }
+    }
+}
+
 /*
  Now we're ready to take it for a spin.
 
- We'll generate a user defined function called 'identity' that simply returns its argument.
- Right after the call we'll push the string "Returned" to verify that we end up in the right place.
+ Here are some ideas to play around with:
+
+ + 1 2
+
+ [3]
+
+
+ task 42
+
+ []
+
+ yield
+
+ [42]
  */
 
 let vm = VM()
-
-let functionForms: [Form] = [Identifier("function"),
-                             Identifier("identity"),
-                             List([Identifier("value")]),
-                             Identifier("value")]
-
-try functionForms.emit(vm, inNamespace: stdLib)
-let callForms: [Form] = [Identifier("identity"), Literal(Value(intType, 42))]
-try callForms.emit(vm, inNamespace: stdLib)
-
-vm.emit(.push(Value(stringType, "Returned")))
-vm.emit(.stop)
-try vm.eval(fromPc: 0)
-
-/*
- This prints [42 "Returned"].
- */
-
-print(vm.dumpStack())
+try repl(vm, readForm, inNamespace: stdLib)

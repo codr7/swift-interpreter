@@ -77,7 +77,7 @@ typealias PC = Int
  */
 
 struct Function: CustomStringConvertible {
-    typealias Body = (VM, inout PC) throws -> Void
+    typealias Body = (Function, VM) throws -> Void
     
     let name: String
     let arguments: [String]
@@ -90,12 +90,12 @@ struct Function: CustomStringConvertible {
         self.body = body
     }
 
-    func call(_ vm: VM, pc: inout PC) throws {
+    func call(_ vm: VM) throws {
         if vm.stack.count < arguments.count {
             throw EvalError.missingValue
         }
         
-        try body(vm, &pc)
+        try body(self, vm)
     }
 }
 
@@ -107,7 +107,7 @@ struct Function: CustomStringConvertible {
  */
 
 struct Macro: CustomStringConvertible {
-    typealias Body = (VM, Namespace, inout [Form]) throws -> Void
+    typealias Body = (Macro, VM, Namespace, inout [Form]) throws -> Void
     
     let name: String
     let body: Body
@@ -120,7 +120,7 @@ struct Macro: CustomStringConvertible {
     }
 
     func emit(_ vm: VM, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-        try body(vm, ns, &args)
+        try body(self, vm, ns, &args)
     }
 }
 
@@ -219,7 +219,6 @@ enum Op {
     case push(Value)
     case stop
     case trace
-    case yield
 }
 
 typealias Stack = [Value]
@@ -284,7 +283,8 @@ class VM {
  
             switch op {
             case let .call(target):
-                try target.call(self, pc: &pc)
+                pc += 1
+                try target.call(self)
             case .nop:
                 pc += 1
             case let .or(endPc):
@@ -302,19 +302,10 @@ class VM {
                 push(value)
                 pc += 1
             case .stop:
-                if tasks.count == 1 {
-                    break loop
-                } else {
-                    tasks.removeFirst()
-                }
-                
                 break loop
             case .trace:
                 pc += 1
                 print("\(pc) \(code[pc])")
-            case .yield:
-                pc += 1
-                tasks.append(tasks.removeFirst())
             }
         }
     }
@@ -343,6 +334,14 @@ class VM {
  */
 
 let stdLib = Namespace()
+
+func stdFunction(_ name: String, _ args: [String], _ body: @escaping Function.Body) {
+    stdLib[name] = Value(functionType, Function(name, args, body))
+}
+
+func stdMacro(_ name: String, _ body: @escaping Macro.Body) {
+    stdLib[name] = Value(macroType, Macro(name, body))
+}
 
 let functionType = ValueType("Function")
 stdLib["Function"] = Value(metaType, functionType)
@@ -377,23 +376,22 @@ stdLib["Macro"] = Value(metaType, macroType)
 let metaType = ValueType("Meta")
 stdLib["Meta"] = Value(metaType, metaType)
 
-let orMacro = Macro("or") {(vm, ns, args) throws in
+stdMacro("or") {(_, vm, ns, args) throws in
     try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
     let orPc = vm.emit(.nop)
     try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
     vm.code[orPc] = .or(vm.emitPc)
 }
 
-stdLib["or"] = Value(macroType, orMacro)
-
-let addFunction = Function("+", ["left", "right"]) {(vm, pc) throws in
+stdFunction("+", ["left", "right"]) {(_, vm) throws in
     let r = vm.pop()!
     let l = vm.pop()!
     vm.push(Value(intType, (l.data as! Int) + (r.data as! Int)))
-    pc += 1
 }
 
-stdLib["+"] = Value(functionType, addFunction)
+stdFunction("yield", []) {(_, vm) throws in
+    vm.tasks.append(vm.tasks.removeFirst())
+}
 
 /*
  Now we're ready to take it for a spin.

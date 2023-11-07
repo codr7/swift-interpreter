@@ -49,7 +49,7 @@ typealias PC = Int
  */
 
 struct Function {
-    typealias Body = (VM, inout PC) throws -> Void
+    typealias Body = (Function, VM) throws -> Void
     
     let name: String
     let body: Body
@@ -59,8 +59,8 @@ struct Function {
         self.body = body
     }
 
-    func call(_ vm: VM, pc: inout PC) throws {
-        try body(vm, &pc)
+    func call(_ vm: VM) throws {
+        try body(self, vm)
     }
 }
 
@@ -105,7 +105,8 @@ class VM {
  
             switch op {
             case let .call(target):
-                try target.call(self, pc: &pc)
+                pc += 1
+                try target.call(self)
             case let .push(v):
                 stack.append(v)
                 pc += 1
@@ -130,11 +131,10 @@ class VM {
 
 let intType = ValueType("Int")
 
-let addFunction = Function("+") {(vm, pc) throws in
+let addFunction = Function("+") {(_, vm) throws in
     let r = vm.pop()!
     let l = vm.pop()!
     vm.push(Value(intType, (l.data as! Int) + (r.data as! Int)))
-    pc += 1
 }
 
 /*

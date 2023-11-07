@@ -49,7 +49,7 @@ typealias PC = Int
  */
 
 struct Function {
-    typealias Body = (VM, inout PC) throws -> Void
+    typealias Body = (Function, VM) throws -> Void
     
     let name: String
     let body: Body
@@ -59,8 +59,8 @@ struct Function {
         self.body = body
     }
 
-    func call(_ vm: VM, pc: inout PC) throws {
-        try body(vm, &pc)
+    func call(_ vm: VM) throws {
+        try body(self, vm)
     }
 }
 
@@ -78,7 +78,6 @@ enum Op {
     case push(Value)
     case stop
     case trace
-    case yield
 }
 
 typealias Stack = [Value]
@@ -135,22 +134,16 @@ class VM {
  
             switch op {
             case let .call(target):
-                try target.call(self, pc: &pc)
+                pc += 1
+                try target.call(self)
             case let .push(value):
                 push(value)
                 pc += 1
             case .stop:
-                if tasks.count == 1 {
-                    break loop
-                } else {
-                    tasks.removeFirst()
-                }
+                break loop
             case .trace:
                 pc += 1
                 print("\(pc) \(code[pc])")
-            case .yield:
-                pc += 1
-                tasks.append(tasks.removeFirst())
             }
         }
     }
@@ -176,11 +169,10 @@ class VM {
 
 let intType = ValueType("Int")
 
-let addFunction = Function("+") {(vm, pc) throws in
+let addFunction = Function("+") {(_, vm) throws in
     let r = vm.pop()!
     let l = vm.pop()!
     vm.push(Value(intType, (l.data as! Int) + (r.data as! Int)))
-    pc += 1
 }
 
 /*
@@ -189,22 +181,24 @@ let addFunction = Function("+") {(vm, pc) throws in
  We'll start an extra task, in addition to the main task, and yield between them a few times.
    */
 
-let pingFunction = Function("ping") {(vm, pc) throws in
-    print("ping \(vm.currentTask!.id)")
-    pc += 1
+let yieldFunction = Function("yield") {(_, vm) throws in
+    vm.tasks.append(vm.tasks.removeFirst())
 }
 
-let pongFunction = Function("pong") {(vm, pc) throws in
+let pingFunction = Function("ping") {(_, vm) throws in
+    print("ping \(vm.currentTask!.id)")
+}
+
+let pongFunction = Function("pong") {(_, vm) throws in
     print("pong \(vm.currentTask!.id)")
-    pc += 1
 }
 
 let vm = VM()
 vm.trace = true
 vm.emit(.call(pingFunction))
-vm.emit(.yield)
+vm.emit(.call(yieldFunction))
 vm.emit(.call(pongFunction))
-vm.emit(.yield)
+vm.emit(.call(yieldFunction))
 vm.emit(.stop)
 vm.startTask()
 try vm.eval(fromPc: 0)
