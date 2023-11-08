@@ -33,19 +33,11 @@ class ValueType {
 }
 
 /*
- We'll use a type alias to make it clear when we're dealing with a program counter,
- as opposed to any random integer.
- */
+ Functions can be either primitive or user defined.
 
-typealias PC = Int
+ Primitive functions are implemented in Swift inside the body, while user defined functions are implemented as virtual operations and use the call stack.
 
-/*
- Functions take the current program counter as a reference argument when called,
- which allows them to decide where to return to.
-
- We'll only deal with primitives for now, which typically simply increase the program counter.
- 
- But once we get to user defined functions, this allows us to jump to the actual code of the called function.
+ We'll only deal with primitives for now.
  */
 
 struct Function {
@@ -79,6 +71,7 @@ enum Op {
     case stop
 }
 
+typealias PC = Int
 typealias Stack = [Value]
 
 /*

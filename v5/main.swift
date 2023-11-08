@@ -68,21 +68,13 @@ enum ReadError: Error {
     case openString(Position)
 }
 
-/*
- We'll use a type alias to make it clear when we're dealing with a program counter,
- as opposed to any random integer.
- */
-
 typealias PC = Int
 
 /*
- Functions take the current program counter as a reference argument when called,
- which allows them to decide where to return to.
+ Functions can be either primitive or user defined.
 
- We'll only deal with primitives for now, which typically simply increase the program counter.
- 
- But once we get to user defined functions, this allows us to jump to the actual code of the called function.
- */
+ Primitive functions are implemented in Swift inside the body, while user defined functions are implemented as virtual operations and use the call stack.
+  */
 
 struct Function: CustomStringConvertible {
     /*
