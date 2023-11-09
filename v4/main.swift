@@ -93,6 +93,7 @@ struct Function: CustomStringConvertible {
     let name: String
     let arguments: [String]
     let body: Body
+
     var description: String { "Function(name)" }
     
     init(_ name: String, _ arguments: [String], _ body: @escaping Body) {
@@ -301,10 +302,6 @@ class VM {
         startTask()
     }
     
-    func dumpStack() -> String {
-        "[\(currentTask!.stack.map({"\($0)"}).joined(separator: " "))]"
-    }
-
     @discardableResult
     func emit(_ op: Op) -> PC {
         if trace { code.append(.trace) }
@@ -361,7 +358,7 @@ class VM {
         currentTask!.stack.last
     }
 
-    func pop() -> Value? {
+    func pop() -> Value {
         currentTask!.stack.removeLast()
     }
 
@@ -503,9 +500,13 @@ stdMacro("or") {(_, vm, ns, args) throws in
     vm.code[or] = .or(vm.emitPc)
 }
 
+stdMacro("trace") {(_, vm, ns, args) throws in
+    vm.trace = !vm.trace
+}
+
 stdFunction("+", ["left", "right"]) {(_, vm) throws in
-    let r = vm.pop()!
-    let l = vm.pop()!
+    let r = vm.pop()
+    let l = vm.pop()
     vm.push(Value(intType, (l.data as! Int) + (r.data as! Int)))
 }
 
@@ -536,7 +537,7 @@ vm.emit(.stop)
 try vm.eval(fromPc: 0)
 
 /*
- This prints [42 "Returned"].
+ This prints [42, "Returned"].
  */
 
-print(vm.dumpStack())
+print(vm.stack)

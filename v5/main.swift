@@ -338,10 +338,6 @@ class VM {
         startTask()
     }
     
-    func dumpStack() -> String {
-        "[\(currentTask!.stack.map({"\($0)"}).joined(separator: " "))]"
-    }
-
     @discardableResult
     func emit(_ op: Op) -> PC {
         if trace { code.append(.trace) }
@@ -401,7 +397,7 @@ class VM {
         currentTask!.stack.last
     }
 
-    func pop() -> Value? {
+    func pop() -> Value {
         currentTask!.stack.removeLast()
     }
 
@@ -441,6 +437,10 @@ struct Stream {
 
     mutating func pushChar(_ char: Character) {
         data.insert(char, at: data.startIndex)
+    }
+
+    mutating func reset() {
+        data = ""
     }
 }
 
@@ -718,6 +718,10 @@ stdMacro("or") {(_, vm, pos, ns, args) throws in
     vm.code[or] = .or(pos, vm.emitPc)
 }
 
+stdMacro("trace") {(_, vm, pos, ns, args) throws in
+    vm.trace = !vm.trace
+}
+
 stdMacro("task") {(_, vm, pos, ns, args) throws in
     let task = vm.emit(.nop)
     try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
@@ -726,8 +730,8 @@ stdMacro("task") {(_, vm, pos, ns, args) throws in
 }
 
 stdFunction("+", ["left", "right"]) {(_, vm) throws in
-    let r = vm.pop()!
-    let l = vm.pop()!
+    let r = vm.pop()
+    let l = vm.pop()
     vm.push(Value(intType, (l.data as! Int) + (r.data as! Int)))
 }
 
@@ -737,18 +741,30 @@ stdFunction("yield", []) {(_, vm) throws in
 
 func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
     var input = Stream()
+    var prompt = 1
     
-    while let line = readLine(strippingNewline: false) {
-        if line == "\n" {
-            var pos = Position("repl")
-            let fs = try readForms(reader, &input, &pos)
-            let pc = vm.emitPc
-            try fs.emit(vm, inNamespace: ns)
-            vm.emit(.stop)
-            try vm.eval(fromPc: pc)
-            print(vm.dumpStack())
+    while true {
+        print("\(prompt). ", terminator: "")
+        let line = readLine(strippingNewline: false)
+        
+        if line == nil || line! == "\n" {
+            do {
+                var pos = Position("repl")
+                let fs = try readForms(reader, &input, &pos)
+                let pc = vm.emitPc
+                try fs.emit(vm, inNamespace: ns)
+                vm.emit(.stop)
+                try vm.eval(fromPc: pc)
+                print("\(vm.stack.isEmpty ? "_" : "\(vm.pop())")\n")
+                input.reset()
+            } catch {
+                print("\(error)\n")
+            }
+            
+            prompt = 1
         } else {
-            input.append(line)
+            input.append(line!)
+            prompt += 1
         }
     }
 }
@@ -760,16 +776,16 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
 
  + 1 2
 
- [3]
+ 3
 
 
  task 42
 
- []
+ _
 
  yield
 
- [42]
+ 42
  */
 
 let vm = VM()

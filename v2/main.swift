@@ -6,9 +6,11 @@
  We'll use structs to represent values, every value has a type.
  */
 
-struct Value {
+struct Value: CustomStringConvertible {
     let type: ValueType
     let data: Any
+    
+    var description: String { type.dump(self) }
 
     init(_ type: ValueType, _ data: Any) {
         self.type = type
@@ -24,12 +26,17 @@ struct Value {
  Types don't do much yet, but may be used to specialize behavior for certain kinds of values.
  */
 
-class ValueType {
+class ValueType: CustomStringConvertible {
     let name: String
-    
+    var description: String { name }
+
     init(_ name: String) {
         self.name = name
     }
+
+    func dump(_ value: Value) -> String {
+        "\(value.data)"        
+    }    
 }
 
 /*
@@ -40,11 +47,13 @@ class ValueType {
  We'll only deal with primitives for now.
  */
 
-struct Function {
+struct Function: CustomStringConvertible {
     typealias Body = (Function, VM) throws -> Void
     
     let name: String
     let body: Body
+
+    var description: String { "Function(name)" }
 
     init(_ name: String, _ body: @escaping Body) {
         self.name = name
@@ -110,10 +119,6 @@ class VM {
         startTask()
     }
     
-    func dumpStack() -> String {
-        "[\(currentTask!.stack.map({$0.dump()}).joined(separator: " "))]"
-    }
-
     func emit(_ op: Op) {
         if trace { code.append(.trace) }
         code.append(op)
@@ -141,7 +146,7 @@ class VM {
         }
     }
 
-    func pop() -> Value? {
+    func pop() -> Value {
         currentTask!.stack.removeLast()
     }
 
@@ -163,8 +168,8 @@ class VM {
 let intType = ValueType("Int")
 
 let addFunction = Function("+") {(_, vm) throws in
-    let r = vm.pop()!
-    let l = vm.pop()!
+    let r = vm.pop()
+    let l = vm.pop()
     vm.push(Value(intType, (l.data as! Int) + (r.data as! Int)))
 }
 
