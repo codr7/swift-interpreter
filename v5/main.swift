@@ -774,17 +774,17 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
 
  Here are some ideas to play around with:
 
- + 1 2
-
+ 1. + 1 2
+ 2. 
  3
 
 
- task 42
-
+ 1. task 42
+ 2. 
  _
 
- yield
-
+ 1. yield
+ 2. 
  42
  */
 
