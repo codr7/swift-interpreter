@@ -19,9 +19,6 @@ The virtual machine we'll build is stack based, as opposed to register based.<br
 <br/>
 Each design has it's strengths and weaknesses; stacks need to be shuffled and registers allocated; but I find stacks more elegant and easy to reason about.
 
-## syntax
-To avoid spending a lot of time on parsing, we'll stick with a strict prefix syntax.
-
 ## versions
 Each version focuses on a one or a few key areas of functionality.
 

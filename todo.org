@@ -1,1 +1,3 @@
-
+* add trace macro from v3
+* make Stack CustomStringConvertible
+** remove dumpStack func
