@@ -1,1 +1,37 @@
+* add bool type
+* add bench macro
 
+function fib1(n) if < n 2 n else + fib1 - n 1 fib1 - n 2
+
+function fib2(n a b) if > n 1 fib2 - n 1 b + a b else if = n 0 a else b
+
+                        if err := args.PopFront().Emit(args, vm, env); err != nil {
+				return err
+			}
+
+			ifPc := vm.Emit(nil, true)
+
+			if err := args.PopFront().Emit(args, vm, env); err != nil {
+				return err
+			}
+
+			elsePc := vm.EmitPc()
+
+			if args.Len() > 0 {
+				next := args.PeekFront()
+
+				if f, ok := next.(*IdForm); ok && f.name == "else" {
+					args.PopFront()
+					gotoPc := vm.Emit(nil, true)
+					elsePc = vm.EmitPc()
+
+					if err := args.PopFront().Emit(args, vm, env); err != nil {
+						return err
+					}
+
+					vm.ops[gotoPc] = NewGotoOp(pos, vm.EmitPc())
+				}
+			}
+
+			vm.ops[ifPc] = NewIfOp(pos, elsePc)
+			return nil
