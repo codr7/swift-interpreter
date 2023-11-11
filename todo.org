@@ -1,5 +1,9 @@
+* rename Stream to Input in v5
+
+swift run -c release
+
 function fib1(n) if < n 2 n else + fib1 - n 1 fib1 - n 2 benchmark 10 fib1 20
-1.461303609 seconds
+0.42437844 seconds
 
 function fib2(n a b) if > n 1 fib2 - n 1 b + a b else if = n 0 a else b benchmark 1000 fib2 70 0 1
-1.412240137 seconds
+0.34325963 seconds

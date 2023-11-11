@@ -53,7 +53,7 @@ struct Function: CustomStringConvertible {
     let name: String
     let body: Body
 
-    var description: String { "Function(name)" }
+    var description: String { name }
 
     init(_ name: String, _ body: @escaping Body) {
         self.name = name

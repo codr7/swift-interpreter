@@ -1,5 +1,5 @@
 /*
- Version 5
+ Version 6
  */
 
 /*
@@ -99,7 +99,7 @@ struct Function: CustomStringConvertible {
     let name: String
     let arguments: [String]
     let body: Body
-    var description: String { "Function(name)" }
+    var description: String { name }
     
     init(_ name: String, _ arguments: [String], _ body: @escaping Body) {
         self.name = name
@@ -274,7 +274,6 @@ extension [Form] {
 
 enum Op {
     case argument(Int)
-    case benchmark(Position)
     case branch(Position, PC)
     case call(Position, Function)
     case goto(PC)
@@ -358,25 +357,6 @@ class VM {
             case let.argument(index):
                 vm.push(vm.stack[vm.callStack.last!.stackOffset+index])
                 pc += 1
-            case let .benchmark(pos):
-                if stack.isEmpty {
-                    throw EvalError.missingValue(pos)
-                }
-
-                let n = pop()
-
-                let t = try ContinuousClock().measure {
-                    pc += 1
-                    let startPc = pc
-                    let stackLength = stack.count
-                    
-                    for _ in 0..<(n.data as! Int) {
-                        try eval(fromPc: startPc)
-                        stack.removeLast(stack.count - stackLength)
-                    }
-                }
-
-                push(Value(timeType, t))
             case let .call(pos, target):
                 pc += 1
                 try target.call(self, at: pos)
@@ -444,10 +424,10 @@ class VM {
 }
 
 /*
- Streams are used to simplify reading input from strings.
+ Inputs are used to simplify reading input from strings.
  */
 
-struct Stream {
+struct Input {
     var data: String
 
     init(_ data: String = "") {
@@ -479,11 +459,11 @@ struct Stream {
  Readers convert source code to forms.
  */
 
-typealias Reader = (_ input: inout Stream, _ pos: inout Position) throws -> Form?
+typealias Reader = (_ input: inout Input, _ pos: inout Position) throws -> Form?
 
 let readers = [readWhitespace, readInt, readList, readString, readIdentifier]
 
-func readForm(_ input: inout Stream, _ pos: inout Position) throws -> Form? {
+func readForm(_ input: inout Input, _ pos: inout Position) throws -> Form? {
     for r in readers {
         if let f = try r(&input, &pos) {
             return f
@@ -493,7 +473,7 @@ func readForm(_ input: inout Stream, _ pos: inout Position) throws -> Form? {
     return nil
 }
 
-func readForms(_ reader: Reader, _ input: inout Stream, _ pos: inout Position) throws -> [Form] {
+func readForms(_ reader: Reader, _ input: inout Input, _ pos: inout Position) throws -> [Form] {
     var output: [Form] = []
     
     while let f = try reader(&input, &pos) {
@@ -503,7 +483,7 @@ func readForms(_ reader: Reader, _ input: inout Stream, _ pos: inout Position) t
     return output
 }
 
-func readIdentifier(_ input: inout Stream, _ pos: inout Position) throws -> Form? {
+func readIdentifier(_ input: inout Input, _ pos: inout Position) throws -> Form? {
     let fpos = pos
     var name = ""
     
@@ -520,7 +500,7 @@ func readIdentifier(_ input: inout Stream, _ pos: inout Position) throws -> Form
     return (name.count == 0) ? nil : Identifier(fpos, name)
 }
 
-func readInt(_ input: inout Stream, _ pos: inout Position) throws -> Form? {
+func readInt(_ input: inout Input, _ pos: inout Position) throws -> Form? {
     let fpos = pos
     var v = 0
     var neg = false
@@ -555,7 +535,7 @@ func readInt(_ input: inout Stream, _ pos: inout Position) throws -> Form? {
     return (pos.column == fpos.column) ? nil : Literal(fpos, Value(intType, neg ? -v : v))
 }
 
-func readList(_ input: inout Stream, _ pos: inout Position) throws -> Form? {
+func readList(_ input: inout Input, _ pos: inout Position) throws -> Form? {
     let fpos = pos
     var c = input.popChar()
     
@@ -586,7 +566,7 @@ func readList(_ input: inout Stream, _ pos: inout Position) throws -> Form? {
     return List(fpos, items)
 }
 
-func readString(_ input: inout Stream, _ pos: inout Position) throws -> Form? {
+func readString(_ input: inout Input, _ pos: inout Position) throws -> Form? {
     let fpos = pos
     var c = input.popChar()
     
@@ -609,7 +589,7 @@ func readString(_ input: inout Stream, _ pos: inout Position) throws -> Form? {
     return Literal(fpos, Value(stringType, String(body)))
 }
 
-func readWhitespace(_ input: inout Stream, _ pos: inout Position) throws -> Form? {
+func readWhitespace(_ input: inout Input, _ pos: inout Position) throws -> Form? {
     while let c = input.popChar() {
         if c.isNewline {
             pos.line += 1
@@ -733,26 +713,6 @@ class StringType: ValueType {
 let stringType = StringType()
 stdLib["String"] = Value(metaType, stringType)
 
-class TimeType: ValueType {
-    init() {
-        super.init("Time")
-    }
-
-    override func toBool(_ value: Value) -> Bool {
-        (value.data as! Duration) != Duration.zero
-    }
-}
-
-let timeType = TimeType()
-stdLib["Time"] = Value(metaType, timeType)
-
-stdMacro("benchmark") {(_, vm, pos, ns, args) throws in
-    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
-    vm.emit(.benchmark(pos))
-    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
-    vm.emit(.stop)
-}
-
 stdMacro("function") {(_, vm, pos, ns, args) throws in
     let id = (args.removeFirst() as! Identifier).name
     let fargs = (args.removeFirst() as! List).items.map {($0 as! Identifier).name}
@@ -851,7 +811,7 @@ stdFunction("yield", []) {(_, vm) throws in
 }
 
 func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
-    var input = Stream()
+    var input = Input()
     var prompt = 1
     
     while true {

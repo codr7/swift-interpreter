@@ -38,3 +38,6 @@ Add readers and REPL.
 
 ### v6
 Add the missing pieces to implement two flavors of Fibonacci.
+
+### v7
+Add support for benchmarking and implement optimizations.
