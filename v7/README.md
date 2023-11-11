@@ -12,6 +12,13 @@ We'll add a new macro that measures the time it takes to evaluate it's argument 
 ```
 
 ## Optimizations
+We will reuse the recursive and tail recursive Fibonacci functions seen previously to evaluate our optimizations:
+
+```
+function fib1(n) if < n 2 n else + fib1 - n 1 fib1 - n 2
+function fib2(n a b) if > n 1 return fib2 - n 1 b + a b else if = n 0 a else b
+```
+
 ### Convert call stack to embedded linked list
 We started out using the most obvious implementation possible for a call stack: an array of call frames. 
 
@@ -107,5 +114,53 @@ stdMacro("function") {(_, vm, pos, ns, args) throws in
 	...
     }
     ...
+}
+```
+
+## Add support for tail calls
+A tail call is a call of a user defined function directly followed by a return, which allows reusing the current call frame rather than pushing a new one. We'll add a `return` macro that triggers tail calls to be emitted when expanded with a user defined function call as argument. This gives the tail recursive version of Fibonacci a 60% boost.
+
+```
+enum EmitOption  {
+    case returning
+}
+
+class FunctionType: ValueType {
+    ...
+    override func identifierEmit(_ value: Value, _ vm: VM, at pos: Position,
+                                 inNamespace ns: Namespace, withArguments args: inout [Form],
+                                 options opts: Set<EmitOption>) throws {
+	...
+        if opts.contains(.returning) && f.startPc != nil {
+            vm.emit(.tailCall(pos, f))
+        } else {
+            vm.emit(.call(pos, f))
+        }
+    }
+}
+
+stdMacro("return") {(_, vm, pos, ns, args) throws in
+    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [.returning])
+}
+
+func eval(fromPc: PC) throws {
+    ...
+    loop: while true {
+        ...
+        switch op {	
+        case let .tailCall(pos, target):
+            let c = vm.currentCall
+                
+            if c == nil || c!.target.startPc == nil {
+                pc += 1
+                try target.call(self, at: pos)
+            } else {
+                c!.target = target
+                c!.stackOffset = vm.stack.count - target.arguments.count
+                pc = target.startPc!
+            }
+	...
+	}
+    }
 }
 ```

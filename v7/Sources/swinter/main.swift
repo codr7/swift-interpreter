@@ -19,8 +19,9 @@ struct Value: CustomStringConvertible {
     }
 
     func identifierEmit(_ vm: VM, at pos: Position,
-                        inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-        try self.type.identifierEmit(self, vm, at: pos, inNamespace: ns, withArguments: &args)
+                        inNamespace ns: Namespace, withArguments args: inout [Form],
+                        options opts: Set<EmitOption>) throws {
+        try self.type.identifierEmit(self, vm, at: pos, inNamespace: ns, withArguments: &args, options: opts)
     }
 }
 
@@ -41,7 +42,8 @@ class ValueType: CustomStringConvertible {
     }
 
     func identifierEmit(_ value: Value, _ vm: VM, at: Position,
-                        inNamespace: Namespace, withArguments: inout [Form]) throws {
+                        inNamespace: Namespace, withArguments: inout [Form],
+                        options: Set<EmitOption>) throws {
         vm.emit(.push(value))
     }
 
@@ -84,8 +86,8 @@ struct Function: CustomStringConvertible {
     
     class Call {
         let parentCall: Call?
-        let target: Function
-        let stackOffset: Int
+        var target: Function
+        var stackOffset: Int
         let returnPc: PC
         
         init(_ parentCall: Call?, _ target: Function, stackOffset: Int, returnPc: PC) {
@@ -98,14 +100,16 @@ struct Function: CustomStringConvertible {
 
     typealias Body = (Function, VM) throws -> Void
     
-    let name: String
     let arguments: [String]
     let body: Body
+    let name: String
+    let startPc: PC?
     var description: String { name }
     
-    init(_ name: String, _ arguments: [String], _ body: @escaping Body) {
+    init(_ name: String, _ arguments: [String], startPc: PC? = nil, _ body: @escaping Body) {
         self.name = name
         self.arguments = arguments
+        self.startPc = startPc
         self.body = body
     }
 
@@ -192,9 +196,13 @@ struct Position: CustomStringConvertible {
  operations.
  */
 
+enum EmitOption  {
+    case returning
+}
+
 protocol Form: CustomStringConvertible {
     var position: Position {get}
-    func emit(_ vm: VM, inNamespace: Namespace, withArguments: inout [Form]) throws
+    func emit(_ vm: VM, inNamespace: Namespace, withArguments: inout [Form], options: Set<EmitOption>) throws
 }
 
 class BasicForm {
@@ -216,9 +224,9 @@ class Identifier: BasicForm, Form {
     }
 
     func emit(_ vm: VM,
-              inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+              inNamespace ns: Namespace, withArguments args: inout [Form], options opts: Set<EmitOption>) throws {
         if let value = ns[name] {
-            try value.identifierEmit(vm, at: position, inNamespace: ns, withArguments: &args)
+            try value.identifierEmit(vm, at: position, inNamespace: ns, withArguments: &args, options: opts)
         } else {
             throw EmitError.unknownIdentifier(position, name)
         }
@@ -235,8 +243,8 @@ class List: BasicForm, Form {
     }
 
     func emit(_ vm: VM,
-              inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-        try items.emit(vm, inNamespace: ns)
+              inNamespace ns: Namespace, withArguments args: inout [Form], options opts: Set<EmitOption>) throws {
+        try items.emit(vm, inNamespace: ns, options: opts)
     }
 }
 
@@ -250,17 +258,17 @@ class Literal: BasicForm, Form {
     }
 
     func emit(_ vm: VM,
-              inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+              inNamespace ns: Namespace, withArguments args: inout [Form], options: Set<EmitOption>) throws {
         vm.emit(.push(value))
     }
 }
 
 extension [Form] {
-    func emit(_ vm: VM, inNamespace ns: Namespace) throws {
+    func emit(_ vm: VM, inNamespace ns: Namespace, options: Set<EmitOption>) throws {
         var fs = self
         
         while fs.count > 0 {
-            try fs.removeFirst().emit(vm, inNamespace: ns, withArguments: &fs)
+            try fs.removeFirst().emit(vm, inNamespace: ns, withArguments: &fs, options: options)
         }
     }
 }
@@ -285,6 +293,7 @@ enum Op {
     case popCall(Function)
     case push(Value)
     case stop
+    case tailCall(Position, Function)
     case task(PC)
     case trace
 }
@@ -418,6 +427,17 @@ class VM {
                 pc += 1
             case .stop:
                 break loop
+            case let .tailCall(pos, target):
+                let c = vm.currentCall
+                
+                if c == nil || c!.target.startPc == nil {
+                    pc += 1
+                    try target.call(self, at: pos)
+                } else {
+                    c!.target = target
+                    c!.stackOffset = vm.stack.count - target.arguments.count
+                    pc = target.startPc!
+                }
             case let .task(endPc):
                 startTask(pc: pc+1)
                 pc = endPc
@@ -648,7 +668,8 @@ class ArgumentType: ValueType {
     }
 
     override func identifierEmit(_ value: Value, _ vm: VM, at pos: Position,
-                                 inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+                                 inNamespace ns: Namespace, withArguments args: inout [Form],
+                                 options: Set<EmitOption>) throws {
         vm.emit(.argument(value.data as! Int))
     }
 }
@@ -676,7 +697,8 @@ class FunctionType: ValueType {
     }
 
     override func identifierEmit(_ value: Value, _ vm: VM, at pos: Position,
-                                 inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+                                 inNamespace ns: Namespace, withArguments args: inout [Form],
+                                 options opts: Set<EmitOption>) throws {
         let f = value.data as! Function
         
         for _ in 0..<f.arguments.count {
@@ -684,10 +706,14 @@ class FunctionType: ValueType {
                 throw EmitError.missingArgument(pos)
             }
 
-            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [])
         }
 
-        vm.emit(.call(pos, f))
+        if opts.contains(.returning) && f.startPc != nil {
+            vm.emit(.tailCall(pos, f))
+        } else {
+            vm.emit(.call(pos, f))
+        }
     }
 }
 
@@ -713,7 +739,8 @@ class MacroType: ValueType {
     }
 
     override func identifierEmit(_ value: Value, _ vm: VM, at pos: Position,
-                                 inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+                                 inNamespace ns: Namespace, withArguments args: inout [Form],
+                                 options: Set<EmitOption>) throws {
         try (value.data as! Macro).emit(vm, at: pos, inNamespace: ns, withArguments: &args)
     }
 }
@@ -751,9 +778,9 @@ let timeType = TimeType()
 stdLib["Time"] = Value(metaType, timeType)
 
 stdMacro("benchmark") {(_, vm, pos, ns, args) throws in
-    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [])
     vm.emit(.benchmark(pos))
-    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [])
     vm.emit(.stop)
 }
 
@@ -764,7 +791,7 @@ stdMacro("function") {(_, vm, pos, ns, args) throws in
     let skip = vm.emit(.nop)
     let startPc = vm.emitPc
 
-    let f = Function(id, fargs) {(f, vm) throws in
+    let f = Function(id, fargs, startPc: startPc) {(f, vm) throws in
         vm.currentCall = Function.Call(vm.currentCall, f,
                                        stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc)
         vm.pc = startPc
@@ -777,15 +804,15 @@ stdMacro("function") {(_, vm, pos, ns, args) throws in
         fns[fargs[i]] = Value(argumentType, i)
     }
 
-    try body.emit(vm, inNamespace: fns, withArguments: &args)
+    try body.emit(vm, inNamespace: fns, withArguments: &args, options: [])
     vm.emit(.popCall(f))
     vm.code[skip] = .goto(vm.emitPc)
 }
 
 stdMacro("if") {(_, vm, pos, ns, args) throws in
-    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [])
     let ifPc = vm.emit(.nop)
-    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [])
     var elsePc = vm.emitPc
 
     if !args.isEmpty {
@@ -794,7 +821,7 @@ stdMacro("if") {(_, vm, pos, ns, args) throws in
                 _ = args.removeFirst()
                 let skipPc = vm.emit(.nop)
                 elsePc = vm.emitPc
-                try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+                try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [])
                 vm.code[skipPc] = .goto(vm.emitPc)
             }
         }
@@ -804,10 +831,14 @@ stdMacro("if") {(_, vm, pos, ns, args) throws in
 }
 
 stdMacro("or") {(_, vm, pos, ns, args) throws in
-    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [])
     let orPc = vm.emit(.nop)
-    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [])
     vm.code[orPc] = .or(pos, vm.emitPc)
+}
+
+stdMacro("return") {(_, vm, pos, ns, args) throws in
+    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [.returning])
 }
 
 stdMacro("trace") {(_, vm, pos, ns, args) throws in
@@ -816,7 +847,7 @@ stdMacro("trace") {(_, vm, pos, ns, args) throws in
 
 stdMacro("task") {(_, vm, pos, ns, args) throws in
     let task = vm.emit(.nop)
-    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [])
     vm.emit(.stop)
     vm.code[task] = .task(vm.emitPc)
 }
@@ -868,7 +899,7 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
                 var pos = Position("repl")
                 let fs = try readForms(reader, &input, &pos)
                 let pc = vm.emitPc
-                try fs.emit(vm, inNamespace: ns)
+                try fs.emit(vm, inNamespace: ns, options: [])
                 vm.emit(.stop)
                 try vm.eval(fromPc: pc)
                 print("\(vm.stack.isEmpty ? "_" : "\(vm.pop())")\n")
