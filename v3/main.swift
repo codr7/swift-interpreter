@@ -105,7 +105,7 @@ struct Macro: CustomStringConvertible {
     let name: String
     let body: Body
 
-    var description: String {"Macro(name)"}
+    var description: String { name }
     
     init(_ name: String, _ body: @escaping Body) {
         self.name = name
