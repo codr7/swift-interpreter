@@ -87,12 +87,14 @@ struct Function: CustomStringConvertible {
     class Call {
         let parentCall: Call?
         var target: Function
+        var position: Position
         var stackOffset: Int
         let returnPc: PC
         
-        init(_ parentCall: Call?, _ target: Function, stackOffset: Int, returnPc: PC) {
+        init(_ parentCall: Call?, _ target: Function, at pos: Position, stackOffset: Int, returnPc: PC) {
             self.parentCall = parentCall
             self.target = target
+            self.position = pos
             self.stackOffset = stackOffset
             self.returnPc = returnPc
         }
@@ -435,6 +437,7 @@ class VM {
                     try target.call(self, at: pos)
                 } else {
                     c!.target = target
+                    c!.position = pos
                     c!.stackOffset = vm.stack.count - target.arguments.count
                     pc = target.startPc!
                 }
@@ -793,7 +796,7 @@ stdMacro("function") {(_, vm, pos, ns, args) throws in
 
     let f = Function(id, fargs, startPc: startPc) {(f, vm) throws in
         vm.currentCall = Function.Call(vm.currentCall, f,
-                                       stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc)
+                                       at: pos, stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc)
         vm.pc = startPc
     }
 

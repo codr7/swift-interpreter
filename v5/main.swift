@@ -84,11 +84,13 @@ struct Function: CustomStringConvertible {
     
     struct Call {
         let target: Function
+        let position: Position
         let stackOffset: Int
         let returnPc: PC
         
-        init(_ target: Function, stackOffset: Int, returnPc: PC) {
+        init(_ target: Function, at pos: Position, stackOffset: Int, returnPc: PC) {
             self.target = target
+            self.position = pos
             self.stackOffset = stackOffset
             self.returnPc = returnPc
         }
@@ -695,7 +697,7 @@ stdMacro("function") {(_, vm, pos, ns, args) throws in
     let startPc = vm.emitPc
 
     let f = Function(id, fargs) {(f, vm) throws in
-        vm.callStack.append(Function.Call(f, stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc))
+        vm.callStack.append(Function.Call(f, at: pos, stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc))
         vm.pc = startPc
     }
 
