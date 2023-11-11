@@ -81,7 +81,7 @@ struct Function: CustomStringConvertible {
         let stackOffset: Int
         let returnPc: PC
         
-        init(_ target: Function, _ stackOffset: Int, _ returnPc: PC) {
+        init(_ target: Function, stackOffset: Int, returnPc: PC) {
             self.target = target
             self.stackOffset = stackOffset
             self.returnPc = returnPc
@@ -475,7 +475,7 @@ let functionMacro = Macro("function") {(_, vm, ns, args) throws in
     let startPc = vm.emitPc
 
     let f = Function(id, fargs) {(f, vm) throws in
-        vm.callStack.append(Function.Call(f, vm.stack.count-fargs.count, vm.pc))
+        vm.callStack.append(Function.Call(f, stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc))
         vm.pc = startPc
     }
 

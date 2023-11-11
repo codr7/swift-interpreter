@@ -79,15 +79,17 @@ typealias PC = Int
 struct Function: CustomStringConvertible {
     /*
      Calls are used to construct the call stack for user defined functions.
-     They keep track of the target being called, it's arguments and the return PC.
+     They keep track of the parent call, the target being called, it's arguments and the return PC.
      */
     
-    struct Call {
+    class Call {
+        let parentCall: Call?
         let target: Function
         let stackOffset: Int
         let returnPc: PC
         
-        init(_ target: Function, _ stackOffset: Int, _ returnPc: PC) {
+        init(_ parentCall: Call?, _ target: Function, stackOffset: Int, returnPc: PC) {
+            self.parentCall = parentCall
             self.target = target
             self.stackOffset = stackOffset
             self.returnPc = returnPc
@@ -298,7 +300,7 @@ class Task {
 
     let id: Id
 
-    var callStack: [Function.Call] = []
+    var currentCall: Function.Call?
     var pc: PC
     var stack: Stack = []
 
@@ -312,13 +314,14 @@ class Task {
  The virtual machine is where the rubber finally meets the road.
  */
 
-class VM {    
-    var callStack: [Function.Call] {
-        get {currentTask!.callStack}
-        set(v) {currentTask!.callStack = v} 
-    }
-    
+class VM {        
     var code: [Op] = []
+
+    var currentCall: Function.Call? {
+        get {currentTask!.currentCall}
+        set(v) {currentTask!.currentCall = v} 
+    }
+
     var currentTask: Task? {tasks[0]}
     var emitPc: PC {code.count}
     var nextTaskId = 0
@@ -356,7 +359,7 @@ class VM {
             
             switch op {
             case let.argument(index):
-                vm.push(vm.stack[vm.callStack.last!.stackOffset+index])
+                vm.push(vm.stack[vm.currentCall!.stackOffset+index])
                 pc += 1
             case let .benchmark(pos):
                 if stack.isEmpty {
@@ -406,7 +409,8 @@ class VM {
                     throw EvalError.missingValue(pos)
                 }
             case let .popCall(target):
-                let c = vm.callStack.removeLast()
+                let c = vm.currentCall!
+                vm.currentCall = c.parentCall
                 vm.stack.removeSubrange(c.stackOffset..<c.stackOffset+target.arguments.count)
                 pc = c.returnPc
             case let .push(value):
@@ -761,7 +765,8 @@ stdMacro("function") {(_, vm, pos, ns, args) throws in
     let startPc = vm.emitPc
 
     let f = Function(id, fargs) {(f, vm) throws in
-        vm.callStack.append(Function.Call(f, vm.stack.count-fargs.count, vm.pc))
+        vm.currentCall = Function.Call(vm.currentCall, f,
+                                       stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc)
         vm.pc = startPc
     }
 
