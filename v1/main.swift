@@ -50,8 +50,8 @@ class ValueType: CustomStringConvertible {
 struct Function: CustomStringConvertible {
     typealias Body = (Function, VM) throws -> Void
     
-    let name: String
     let body: Body
+    let name: String
 
     var description: String { name }
 

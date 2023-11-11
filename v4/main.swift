@@ -77,9 +77,9 @@ struct Function: CustomStringConvertible {
      */
     
     struct Call {
-        let target: Function
-        let stackOffset: Int
         let returnPc: PC
+        let stackOffset: Int
+        let target: Function
         
         init(_ target: Function, stackOffset: Int, returnPc: PC) {
             self.target = target
@@ -90,9 +90,9 @@ struct Function: CustomStringConvertible {
 
     typealias Body = (Function, VM) throws -> Void
     
-    let name: String
     let arguments: [String]
     let body: Body
+    let name: String
 
     var description: String { name }
     

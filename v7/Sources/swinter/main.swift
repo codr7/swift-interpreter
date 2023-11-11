@@ -86,10 +86,11 @@ struct Function: CustomStringConvertible {
     
     class Call {
         let parentCall: Call?
-        var target: Function
+        let returnPc: PC
+
         var position: Position
         var stackOffset: Int
-        let returnPc: PC
+        var target: Function
         
         init(_ parentCall: Call?, _ target: Function, at pos: Position, stackOffset: Int, returnPc: PC) {
             self.parentCall = parentCall
@@ -106,6 +107,7 @@ struct Function: CustomStringConvertible {
     let body: Body
     let name: String
     let startPc: PC?
+
     var description: String { name }
     
     init(_ name: String, _ arguments: [String], startPc: PC? = nil, _ body: @escaping Body) {

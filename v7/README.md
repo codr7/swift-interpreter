@@ -25,12 +25,14 @@ We started out using the most obvious implementation possible for a call stack: 
 ```
 struct Function {
     struct Call {
-        let target: Function
-        let stackOffset: Int
+	let position: Position
         let returnPc: PC
+        let stackOffset: Int
+        let target: Function
         
-        init(_ target: Function, stackOffset: Int, returnPc: PC) {
+        init(_ target: Function, at pos: Position, stackOffset: Int, returnPc: PC) {
             self.target = target
+	    self.position = pos
             self.stackOffset = stackOffset
             self.returnPc = returnPc
         }
@@ -61,7 +63,7 @@ func eval(fromPc: PC) throws {
 stdMacro("function") {(_, vm, pos, ns, args) throws in
     ...
     let f = Function(id, fargs) {(f, vm) throws in
-        vm.callStack.append(Function.Call(f, stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc))
+        vm.callStack.append(Function.Call(f, at: pos, stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc))
 	...
     }
     ...
@@ -76,7 +78,7 @@ struct Function {
         let parentCall: Call?
 	...
         
-        init(_ parentCall: Call?, _ target: Function, stackOffset: Int, returnPc: PC) {
+        init(_ parentCall: Call?, ...) {
             self.parentCall = parentCall
 	    ...
         }
@@ -110,7 +112,7 @@ stdMacro("function") {(_, vm, pos, ns, args) throws in
     ...
     let f = Function(id, fargs) {(f, vm) throws in
         vm.currentCall = Function.Call(vm.currentCall, f,
-                                       stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc)
+                                       at: pos, stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc)
 	...
     }
     ...

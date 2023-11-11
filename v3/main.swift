@@ -71,9 +71,9 @@ public enum EvalError: Error {
 struct Function: CustomStringConvertible {
     typealias Body = (Function, VM) throws -> Void
     
-    let name: String
     let arguments: [String]
     let body: Body
+    let name: String
 
     var description: String { name }
     
