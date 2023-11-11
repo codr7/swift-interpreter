@@ -37,4 +37,4 @@ Add call stack and user defined functions.
 Add readers and REPL.
 
 ### v6
-Three flavors of Fibonacci.
+Add the missing pieces to implement two flavors of Fibonacci.

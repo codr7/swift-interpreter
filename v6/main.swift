@@ -274,6 +274,7 @@ extension [Form] {
 
 enum Op {
     case argument(Int)
+    case benchmark(Position)
     case branch(Position, PC)
     case call(Position, Function)
     case goto(PC)
@@ -357,6 +358,25 @@ class VM {
             case let.argument(index):
                 vm.push(vm.stack[vm.callStack.last!.stackOffset+index])
                 pc += 1
+            case let .benchmark(pos):
+                if stack.isEmpty {
+                    throw EvalError.missingValue(pos)
+                }
+
+                let n = pop()
+
+                let t = try ContinuousClock().measure {
+                    pc += 1
+                    let startPc = pc
+                    let stackLength = stack.count
+                    
+                    for _ in 0..<(n.data as! Int) {
+                        try eval(fromPc: startPc)
+                        stack.removeLast(stack.count - stackLength)
+                    }
+                }
+
+                push(Value(timeType, t))
             case let .call(pos, target):
                 pc += 1
                 try target.call(self, at: pos)
@@ -631,6 +651,21 @@ class ArgumentType: ValueType {
 
 let argumentType = ArgumentType()
 
+class BoolType: ValueType {
+    init() {
+        super.init("Bool")
+    }
+
+    override func toBool(_ value: Value) -> Bool {
+        value.data as! Bool
+    }
+}
+
+let boolType = BoolType()
+stdLib["Bool"] = Value(metaType, boolType)
+stdLib["true"] = Value(boolType, true)
+stdLib["false"] = Value(boolType, false)
+
 class FunctionType: ValueType {
     init() {
         super.init("Function")
@@ -698,6 +733,26 @@ class StringType: ValueType {
 let stringType = StringType()
 stdLib["String"] = Value(metaType, stringType)
 
+class TimeType: ValueType {
+    init() {
+        super.init("Time")
+    }
+
+    override func toBool(_ value: Value) -> Bool {
+        (value.data as! Duration) != Duration.zero
+    }
+}
+
+let timeType = TimeType()
+stdLib["Time"] = Value(metaType, timeType)
+
+stdMacro("benchmark") {(_, vm, pos, ns, args) throws in
+    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+    vm.emit(.benchmark(pos))
+    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+    vm.emit(.stop)
+}
+
 stdMacro("function") {(_, vm, pos, ns, args) throws in
     let id = (args.removeFirst() as! Identifier).name
     let fargs = (args.removeFirst() as! List).items.map {($0 as! Identifier).name}
@@ -761,6 +816,24 @@ stdMacro("task") {(_, vm, pos, ns, args) throws in
     vm.code[task] = .task(vm.emitPc)
 }
 
+stdFunction("=", ["left", "right"]) {(_, vm) throws in
+    let r = vm.pop()
+    let l = vm.pop()
+    vm.push(Value(boolType, (l.data as! Int) == (r.data as! Int)))
+}
+
+stdFunction("<", ["left", "right"]) {(_, vm) throws in
+    let r = vm.pop()
+    let l = vm.pop()
+    vm.push(Value(boolType, (l.data as! Int) < (r.data as! Int)))
+}
+
+stdFunction(">", ["left", "right"]) {(_, vm) throws in
+    let r = vm.pop()
+    let l = vm.pop()
+    vm.push(Value(boolType, (l.data as! Int) > (r.data as! Int)))
+}
+
 stdFunction("+", ["left", "right"]) {(_, vm) throws in
     let r = vm.pop()
     let l = vm.pop()
@@ -810,20 +883,17 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
 /*
  Now we're ready to take it for a spin.
 
- Here are some ideas to play around with:
+ We'll implement two flavors of Fibonacci, one recursive and one tail recursive:
 
- 1. + 1 2
- 2. 
- 3
+1. function fib1(n) if < n 2 n else + fib1 - n 1 fib1 - n 2
+2. fib1 10
+3.
+55
 
-
- 1. task 42
- 2. 
- _
-
- 1. yield
- 2. 
- 42
+1. function fib2(n a b) if > n 1 fib2 - n 1 b + a b else if = n 0 a else b
+2. fib2 10 0 1
+3.
+55
  */
 
 let vm = VM()
