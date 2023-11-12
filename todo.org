@@ -1,5 +1,4 @@
-* convert .push to Literal
-* add constants to macro part
+* add constant macro to macro part
 * cache constant stack suffix in call/tailCall ops
 
 swift run -c release

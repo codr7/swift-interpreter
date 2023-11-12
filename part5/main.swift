@@ -129,17 +129,23 @@ struct Function: CustomStringConvertible {
 struct Macro: CustomStringConvertible {
     typealias Body = (Macro, VM, Position, Namespace, inout [Form]) throws -> Void
     
-    let name: String
+    let arity: Int
     let body: Body
+    let name: String
 
     var description: String { name }
     
-    init(_ name: String, _ body: @escaping Body) {
+    init(_ name: String, _ arity: Int, _ body: @escaping Body) {
         self.name = name
+        self.arity = arity
         self.body = body
     }
 
     func emit(_ vm: VM, at pos: Position, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+        if args.count < arity {
+            throw EmitError.missingArgument(pos)
+        }
+
         try body(self, vm, pos, ns, &args)
     }
 }
@@ -606,8 +612,8 @@ func stdFunction(_ name: String, _ args: [String], _ body: @escaping Function.Bo
     stdLib[name] = Value(functionType, Function(name, args, body))
 }
 
-func stdMacro(_ name: String, _ body: @escaping Macro.Body) {
-    stdLib[name] = Value(macroType, Macro(name, body))
+func stdMacro(_ name: String, _ arity: Int, _ body: @escaping Macro.Body) {
+    stdLib[name] = Value(macroType, Macro(name, arity, body))
 }
 
 class ArgumentType: ValueType {
@@ -690,7 +696,7 @@ class StringType: ValueType {
 let stringType = StringType()
 stdLib["String"] = Value(metaType, stringType)
 
-stdMacro("function") {(_, vm, pos, ns, args) throws in
+stdMacro("function", 3) {(_, vm, pos, ns, args) throws in
     let id = (args.removeFirst() as! Identifier).name
     let fargs = (args.removeFirst() as! List).items.map {($0 as! Identifier).name}
     let body = args.removeFirst()
@@ -714,22 +720,22 @@ stdMacro("function") {(_, vm, pos, ns, args) throws in
     vm.code[skip] = .goto(vm.emitPc)
 }
 
-stdMacro("or") {(_, vm, pos, ns, args) throws in
+stdMacro("or", 2) {(_, vm, pos, ns, args) throws in
     try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
     let or = vm.emit(.nop)
     try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
     vm.code[or] = .or(pos, vm.emitPc)
 }
 
-stdMacro("trace") {(_, vm, pos, ns, args) throws in
-    vm.trace = !vm.trace
-}
-
-stdMacro("task") {(_, vm, pos, ns, args) throws in
+stdMacro("task", 1) {(_, vm, pos, ns, args) throws in
     let task = vm.emit(.nop)
     try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
     vm.emit(.stop)
     vm.code[task] = .task(vm.emitPc)
+}
+
+stdMacro("trace", 0) {(_, vm, pos, ns, args) throws in
+    vm.trace = !vm.trace
 }
 
 stdFunction("+", ["left", "right"]) {(_, vm) throws in

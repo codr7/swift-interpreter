@@ -40,8 +40,8 @@ class ValueType: CustomStringConvertible {
         "\(value.data)"        
     }
 
-    func identifierEmit(_ value: Value, _ vm: VM, inNamespace: Namespace, withArguments: inout [Form]) throws {
-        vm.emit(.push(value))
+    func identifierEmit(_ value: Value, _ vm: VM, inNamespace: Namespace, withArguments args: inout [Form]) throws {
+        args.insert(Literal(value), at: 0)
     }
 
     func toBool(_ value: Value) -> Bool {
@@ -120,18 +120,24 @@ struct Function: CustomStringConvertible {
 
 struct Macro: CustomStringConvertible {
     typealias Body = (Macro, VM, Namespace, inout [Form]) throws -> Void
-    
-    let name: String
+
+    let arity: Int
     let body: Body
+    let name: String
 
     var description: String { name }
     
-    init(_ name: String, _ body: @escaping Body) {
+    init(_ name: String, _ arity: Int, _ body: @escaping Body) {
         self.name = name
+        self.arity = arity
         self.body = body
     }
 
     func emit(_ vm: VM, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+        if args.count < arity {
+            throw EmitError.missingArgument
+        }
+        
         try body(self, vm, ns, &args)
     }
 }
@@ -383,8 +389,8 @@ func stdFunction(_ name: String, _ args: [String], _ body: @escaping Function.Bo
     stdLib[name] = Value(functionType, Function(name, args, body))
 }
 
-func stdMacro(_ name: String, _ body: @escaping Macro.Body) {
-    stdLib[name] = Value(macroType, Macro(name, body))
+func stdMacro(_ name: String, _ arity: Int, _ body: @escaping Macro.Body) {
+    stdLib[name] = Value(macroType, Macro(name, arity, body))
 }
 
 class ArgumentType: ValueType {
@@ -467,7 +473,7 @@ class StringType: ValueType {
 let stringType = StringType()
 stdLib["String"] = Value(metaType, stringType)
 
-let functionMacro = Macro("function") {(_, vm, ns, args) throws in
+stdMacro("function", 3) {(_, vm, ns, args) throws in
     let id = (args.removeFirst() as! Identifier).name
     let fargs = (args.removeFirst() as! List).items.map {($0 as! Identifier).name}
     let body = args.removeFirst()
@@ -491,16 +497,14 @@ let functionMacro = Macro("function") {(_, vm, ns, args) throws in
     vm.code[skip] = .goto(vm.emitPc)
 }
 
-stdLib["function"] = Value(macroType, functionMacro)
-
-stdMacro("or") {(_, vm, ns, args) throws in
+stdMacro("or", 2) {(_, vm, ns, args) throws in
     try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
     let or = vm.emit(.nop)
     try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
     vm.code[or] = .or(vm.emitPc)
 }
 
-stdMacro("trace") {(_, vm, ns, args) throws in
+stdMacro("trace", 0) {(_, vm, ns, args) throws in
     vm.trace = !vm.trace
 }
 
