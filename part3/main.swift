@@ -1,16 +1,8 @@
-/*
- Version 3
- */
-
-/*
- We'll use structs to represent values, every value has a type.
- */
-
 struct Value: CustomStringConvertible {
     let type: ValueType
     let data: Any
 
-    var description: String { type.dump(self) }
+    var description: String { type.toString(self) }
     var toBool: Bool { type.toBool(self) }
     
     init(_ type: ValueType, _ data: Any) {
@@ -23,10 +15,6 @@ struct Value: CustomStringConvertible {
     }
 }
 
-/*
- Types allow specializing behaviour for differend kinds of values.
- */
-
 class ValueType: CustomStringConvertible {
     let name: String
     var description: String { name }
@@ -35,7 +23,7 @@ class ValueType: CustomStringConvertible {
         self.name = name
     }
 
-    func dump(_ value: Value) -> String {
+    func toString(_ value: Value) -> String {
         "\(value.data)"        
     }
 
@@ -60,14 +48,6 @@ public enum EmitError: Error {
 public enum EvalError: Error {
     case missingValue
 }
-
-/*
- Functions can be either primitive or user defined.
-
- Primitive functions are implemented in Swift inside the body, while user defined functions are implemented as virtual operations and use the call stack.
-
- We'll only deal with primitives for now.
- */
 
 struct Function: CustomStringConvertible {
     typealias Body = (Function, VM) throws -> Void
@@ -205,15 +185,6 @@ extension [Form] {
 
 typealias PC = Int
 
-/*
- Operations are the things that our virtual machine executes.
-
- Any kind of code we want to run on it, regardless of syntax; needs to be reduced to a sequence of operations.
-
- The reason there's a separate case for stopping is to avoid having to check in the eval loop,
- which needs to be as fast as possible.
- */
-
 enum Op {
     case call(Function)
     case nop
@@ -224,10 +195,6 @@ enum Op {
 }
 
 typealias Stack = [Value]
-
-/*
- Tasks represent independent flows of execution with separate stacks and program counters.
- */
 
 class Task {
     typealias Id = Int
@@ -241,10 +208,6 @@ class Task {
         self.pc = startPc
     }
 }
-
-/*
- The virtual machine is where the rubber finally meets the road.
- */
 
 class VM {    
     var code: [Op] = []

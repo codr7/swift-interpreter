@@ -1,16 +1,8 @@
-/*
- Version 4
- */
-
-/*
- We'll use structs to represent values, every value has a type.
- */
-
 struct Value: CustomStringConvertible {
     let type: ValueType
     let data: Any
 
-    var description: String { type.dump(self) }
+    var description: String { type.toString(self) }
     var toBool: Bool { type.toBool(self) }
     
     init(_ type: ValueType, _ data: Any) {
@@ -24,10 +16,6 @@ struct Value: CustomStringConvertible {
     }
 }
 
-/*
- Types allow specializing behaviour for differend kinds of values.
- */
-
 class ValueType: CustomStringConvertible {
     let name: String
     var description: String { name }
@@ -36,7 +24,7 @@ class ValueType: CustomStringConvertible {
         self.name = name
     }
 
-    func dump(_ value: Value) -> String {
+    func toString(_ value: Value) -> String {
         "\(value.data)"        
     }
 
@@ -49,10 +37,6 @@ class ValueType: CustomStringConvertible {
     }
 }
 
-/*
- Errors are defined by enums separated by category.
- */
-
 enum EmitError: Error {
     case missingArgument
     case unknownIdentifier(String)
@@ -63,12 +47,6 @@ enum EvalError: Error {
 }
 
 typealias PC = Int
-
-/*
- Functions can be either primitive or user defined.
-
- Primitive functions are implemented in Swift inside the body, while user defined functions are implemented as virtual operations and use the call stack.
- */
 
 struct Function: CustomStringConvertible {
     /*
@@ -111,13 +89,6 @@ struct Function: CustomStringConvertible {
     }
 }
 
-/*
- Macros are named constructs that emit operations on use.
- 
- Since they are free to evaluate their arguments and manipulate their environment any way they choose,
- they may be used to add new features to the language, control structures etc.
- */
-
 struct Macro: CustomStringConvertible {
     typealias Body = (Macro, VM, Namespace, inout [Form]) throws -> Void
 
@@ -142,10 +113,6 @@ struct Macro: CustomStringConvertible {
     }
 }
 
-/*
- Namespaces map symbols to values, and are used for looking up identifiers when emitting forms.
- */
-
 class Namespace {
     let parent: Namespace?
     var bindings: [String:Value] = [:]
@@ -167,11 +134,6 @@ class Namespace {
         self.parent = parent
     }
 }
-
-/*
- Forms are the bits and pieces that the syntax consists of, the initial step in converting code to 
- operations.
- */
 
 protocol Form: CustomStringConvertible {
     func emit(_ vm: VM, inNamespace: Namespace, withArguments: inout [Form]) throws
@@ -234,15 +196,6 @@ extension [Form] {
     }
 }
 
-/*
- Operations are the things that our virtual machine executes.
-
- Any kind of code we want to run on it, regardless of syntax; needs to be reduced to a sequence of operations.
-
- The reason there's a separate case for stopping is to avoid having to check in the eval loop,
- which needs to be as fast as possible.
- */
-
 enum Op {
     case argument(Int)
     case call(Function)
@@ -256,10 +209,6 @@ enum Op {
 }
 
 typealias Stack = [Value]
-
-/*
- Tasks represent independent flows of execution with separate stacks and program counters.
- */
 
 class Task {
     typealias Id = Int
@@ -275,10 +224,6 @@ class Task {
         self.pc = startPc
     }
 }
-
-/*
- The virtual machine is where the rubber finally meets the road.
- */
 
 class VM {    
     var callStack: [Function.Call] {
@@ -378,10 +323,6 @@ class VM {
         nextTaskId += 1
     }
 }
-
-/*
- The humble beginnings of a standard library.
- */
 
 let stdLib = Namespace()
 

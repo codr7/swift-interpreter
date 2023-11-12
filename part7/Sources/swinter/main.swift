@@ -2,7 +2,7 @@ struct Value: CustomStringConvertible {
     let type: ValueType
     let data: Any
 
-    var description: String { type.dump(self) }
+    var description: String { type.toString(self) }
     var toBool: Bool { type.toBool(self) }
     
     init(_ type: ValueType, _ data: Any) {
@@ -25,7 +25,7 @@ class ValueType: CustomStringConvertible {
         self.name = name
     }
 
-    func dump(_ value: Value) -> String {
+    func toString(_ value: Value) -> String {
         "\(value.data)"        
     }
 
