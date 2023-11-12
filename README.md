@@ -1,12 +1,12 @@
 ## Introduction
-The goal of this tutorial is to provide the foundation for an interpreter in Swift that is simple enough to understand, yet substantial enough to continue building upon and playing around with.<br/>
+The goal of this tutorial is to provide the foundation for an interpreter in Swift that is simple enough to understand, yet substantial enough to continue building upon and playing around with; the final implementation clocks in att 850loc.<br/>
 <br/>
 A taste of interpreters, Swift, or both; depending on where you're coming from.<br/>
 <br/>
 Rather than starting with parsing; we'll work from the bottom up, starting with a basic virtual machine and gradually adding syntax and features on top.
 
 ## Motivation
-I consider learning how our tools are constructed is an essential part of evolving as a software developer.<br/>
+I consider learning how our tools are constructed is an essential part of becoming a mature software developer.<br/>
 <br/>
 In addition, interpreters are useful in many situations; configuration languages, expression evaluators, template engines and scripting languages just to name a few.<br/>
 

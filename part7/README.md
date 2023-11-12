@@ -1,6 +1,6 @@
 # 7. Benchmarking and optimization
 
-In this chapter, we'll add a macro for benchmarking the interpreter and apply a set of optimizations to improve its performance.
+In this part, we'll add a macro for benchmarking the interpreter and apply a set of optimizations to improve its performance.
 
 ## Setup
 To try it out; simply download and install [Swift](https://www.swift.org/download/) and run `swift run` from this directory.

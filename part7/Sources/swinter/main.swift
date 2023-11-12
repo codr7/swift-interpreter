@@ -1,11 +1,3 @@
-/*
- Version 7
- */
-
-/*
- We'll use structs to represent values, every value has a type.
- */
-
 struct Value: CustomStringConvertible {
     let type: ValueType
     let data: Any
@@ -24,10 +16,6 @@ struct Value: CustomStringConvertible {
         try self.type.identifierEmit(self, vm, at: pos, inNamespace: ns, withArguments: &args, options: opts)
     }
 }
-
-/*
- Types allow specializing behaviour for differend kinds of values.
- */
 
 class ValueType: CustomStringConvertible {
     let name: String
@@ -52,10 +40,6 @@ class ValueType: CustomStringConvertible {
     }
 }
 
-/*
- Errors are defined by enums separated by category.
- */
-
 enum EmitError: Error {
     case missingArgument(Position)
     case unknownIdentifier(Position, String)
@@ -72,18 +56,7 @@ enum ReadError: Error {
 
 typealias PC = Int
 
-/*
- Functions can be either primitive or user defined.
-
- Primitive functions are implemented in Swift inside the body, while user defined functions are implemented as virtual operations and use the call stack.
-  */
-
 struct Function: CustomStringConvertible {
-    /*
-     Calls are used to construct the call stack for user defined functions.
-     They keep track of the parent call, the target being called, it's arguments and the return PC.
-     */
-    
     class Call {
         let parentCall: Call?
         let returnPc: PC
@@ -126,13 +99,6 @@ struct Function: CustomStringConvertible {
     }
 }
 
-/*
- Macros are named constructs that emit operations on use.
- 
- Since they are free to evaluate their arguments and manipulate their environment any way they choose,
- they may be used to add new features to the language, control structures etc.
- */
-
 struct Macro: CustomStringConvertible {
     typealias Body = (Macro, VM, Position, Namespace, inout [Form]) throws -> Void
     
@@ -150,10 +116,6 @@ struct Macro: CustomStringConvertible {
         try body(self, vm, pos, ns, &args)
     }
 }
-
-/*
- Namespaces map symbols to values, and are used for looking up identifiers when emitting forms.
- */
 
 class Namespace {
     let parent: Namespace?
@@ -177,10 +139,6 @@ class Namespace {
     }
 }
 
-/*
- Positions are used to track source code locations.
- */
-
 struct Position: CustomStringConvertible {
     let source: String
 
@@ -194,11 +152,6 @@ struct Position: CustomStringConvertible {
         self.column = column
     }
 }
-
-/*
- Forms are the bits and pieces that the syntax consists of, the initial step in converting code to 
- operations.
- */
 
 enum EmitOption  {
     case returning
@@ -277,15 +230,6 @@ extension [Form] {
     }
 }
 
-/*
- Operations are the things that our virtual machine executes.
-
- Any kind of code we want to run on it, regardless of syntax; needs to be reduced to a sequence of operations.
-
- The reason there's a separate case for stopping is to avoid having to check in the eval loop,
- which needs to be as fast as possible.
- */
-
 enum Op {
     case argument(Int)
     case benchmark(Position)
@@ -304,10 +248,6 @@ enum Op {
 
 typealias Stack = [Value]
 
-/*
- Tasks represent independent flows of execution with separate stacks and program counters.
- */
-
 class Task {
     typealias Id = Int
 
@@ -322,10 +262,6 @@ class Task {
         self.pc = startPc
     }
 }
-
-/*
- The virtual machine is where the rubber finally meets the road.
- */
 
 class VM {        
     var code: [Op] = []
@@ -472,10 +408,6 @@ class VM {
     }
 }
 
-/*
- Inputs are used to simplify reading input from strings.
- */
-
 struct Input {
     var data: String
 
@@ -503,10 +435,6 @@ struct Input {
         data = ""
     }
 }
-
-/*
- Readers convert source code to forms.
- */
 
 typealias Reader = (_ input: inout Input, _ pos: inout Position) throws -> Form?
 
@@ -652,10 +580,6 @@ func readWhitespace(_ input: inout Input, _ pos: inout Position) throws -> Form?
     
     return nil
 }
-
-/*
- The humble beginnings of a standard library.
- */
 
 let stdLib = Namespace()
 
@@ -920,22 +844,6 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
         }
     }
 }
-
-/*
- Now we're ready to take it for a spin.
-
- We'll implement two flavors of Fibonacci, one recursive and one tail recursive:
-
-1. function fib1(n) if < n 2 n else + fib1 - n 1 fib1 - n 2
-2. fib1 10
-3.
-55
-
-1. function fib2(n a b) if > n 1 fib2 - n 1 b + a b else if = n 0 a else b
-2. fib2 10 0 1
-3.
-55
- */
 
 let vm = VM()
 try repl(vm, readForm, inNamespace: stdLib)
