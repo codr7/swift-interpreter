@@ -6,12 +6,11 @@ A taste of interpreters, Swift, or both; depending on where you're coming from.<
 Rather than starting with parsing; we'll work from the bottom up, starting with a basic virtual machine and gradually adding syntax and features on top.
 
 ## Motivation
-Because I consider learning how our tools are constructed is an essential part of becoming a software developer.<br/>
+I consider learning how our tools are constructed is an essential part of evolving as a software developer.<br/>
 <br/>
-In addition, interpreters are useful in many situations; configuration languages, expression evaluators, template engines and scripting languages just to name a few.
+In addition, interpreters are useful in many situations; configuration languages, expression evaluators, template engines and scripting languages just to name a few.<br/>
 
 ## Parts
-
 1. [A minimum viable virtual machine](https://github.com/codr7/swift-interpreter/tree/main/part1)
 
 2. [Tracing and green threads](https://github.com/codr7/swift-interpreter/tree/main/part2)
