@@ -1,5 +1,9 @@
-## Introduction
-This time around we'll add some tools for benchmarking the interpreter and apply a set of optimizations to improve its performance.
+# 7. Benchmarking and optimization
+
+In this chapter, we'll add a macro for benchmarking the interpreter and apply a set of optimizations to improve its performance.
+
+## Setup
+To try it out; simply download and install [Swift](https://www.swift.org/download/) and run `swift run` from this directory.
 
 ## Benchmarking
 We'll add a new macro that measures the time it takes to evaluate it's argument in a loop.
@@ -12,7 +16,7 @@ We'll add a new macro that measures the time it takes to evaluate it's argument 
 ```
 
 ## Optimizations
-We will reuse the recursive and tail recursive Fibonacci functions seen previously to evaluate our optimizations:
+We will reuse the recursive and tail recursive Fibonacci functions seen previously to evaluate the impact of our optimizations.
 
 ```
 function fib1(n) if < n 2 n else + fib1 - n 1 fib1 - n 2
@@ -70,7 +74,7 @@ stdMacro("function") {(_, vm, pos, ns, args) throws in
 }
 ```
 
-Converting it to an embedded linked list, where each call containes an optional reference to the previous call; gives a 30-40% boost.
+Converting it to an embedded linked list, where each frame contains an optional reference to its parent; gives a 30-40% boost.
 
 ```
 struct Function {
@@ -119,7 +123,7 @@ stdMacro("function") {(_, vm, pos, ns, args) throws in
 }
 ```
 
-## Add support for tail calls
+## Implement tail calls
 A tail call is a call of a user defined function directly followed by a return, which allows reusing the current call frame rather than pushing a new one. We'll add a `return` macro that triggers tail calls to be emitted when expanded with a user defined function call as argument. This gives the tail recursive version of Fibonacci a 60% boost.
 
 ```
