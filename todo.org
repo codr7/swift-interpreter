@@ -1,4 +1,5 @@
-* add constant macro to macro part
+* add constant macro to repl part
+** insert Literal
 * cache constant stack suffix in call/tailCall ops
 
 swift run -c release
