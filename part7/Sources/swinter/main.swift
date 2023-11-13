@@ -719,6 +719,12 @@ stdMacro("benchmark", 2) {(_, vm, pos, ns, args) throws in
     vm.emit(.stop)
 }
 
+stdMacro("constant", 2) {(_, vm, pos, ns, args) throws in
+    let name = (args.removeFirst() as! Identifier).name
+    let value = (args.removeFirst() as! Literal).value
+    ns[name] = value
+}
+
 stdMacro("function", 3) {(_, vm, pos, ns, args) throws in
     let id = (args.removeFirst() as! Identifier).name
     let fargs = (args.removeFirst() as! List).items.map {($0 as! Identifier).name}

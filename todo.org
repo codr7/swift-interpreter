@@ -1,6 +1,8 @@
-* add constant macro to repl part
-** insert Literal
+* finish argument type/std conversion from part 5
+** add readPair (x:Int)
 * cache constant stack suffix in call/tailCall ops
+** benchmark
+* fix all as!-typecasts
 
 swift run -c release
 

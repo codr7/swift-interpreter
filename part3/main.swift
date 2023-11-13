@@ -40,25 +40,26 @@ class ValueType: CustomStringConvertible {
  Errors are defined by enums separated by category.
  */
 
-public enum EmitError: Error {
+enum EmitError: Error {
     case missingArgument
     case unknownIdentifier(String)
 }
 
-public enum EvalError: Error {
+enum EvalError: Error {
     case missingValue
+    case typeMismatch(ValueType, ValueType)
 }
 
 struct Function: CustomStringConvertible {
     typealias Body = (Function, VM) throws -> Void
     
-    let arguments: [String]
+    let arguments: [(String, ValueType)]
     let body: Body
     let name: String
 
     var description: String { name }
     
-    init(_ name: String, _ arguments: [String], _ body: @escaping Body) {
+    init(_ name: String, _ arguments: [(String, ValueType)], _ body: @escaping Body) {
         self.name = name
         self.arguments = arguments
         self.body = body
@@ -67,6 +68,15 @@ struct Function: CustomStringConvertible {
     func call(_ vm: VM) throws {
         if vm.stack.count < arguments.count {
             throw EvalError.missingValue
+        }
+
+        for i in 0..<arguments.count {
+            let expected = arguments[i].1
+            let actual  = vm.stack[vm.stack.count - arguments.count + i].type
+
+            if actual !== expected {
+                throw EvalError.typeMismatch(expected, actual)
+            }
         }
         
         try body(self, vm)
@@ -296,7 +306,7 @@ class VM {
 
 let stdLib = Namespace()
 
-func stdFunction(_ name: String, _ args: [String], _ body: @escaping Function.Body) {
+func stdFunction(_ name: String, _ args: [(String, ValueType)], _ body: @escaping Function.Body) {
     stdLib[name] = Value(functionType, Function(name, args, body))
 }
 
@@ -348,7 +358,7 @@ stdMacro("trace", 0) {(_, vm, ns, args) throws in
     vm.trace = !vm.trace
 }
 
-stdFunction("+", ["left", "right"]) {(_, vm) throws in
+stdFunction("+", [("left", intType), ("right", intType)]) {(_, vm) throws in
     let r = vm.pop()
     let l = vm.pop()
     vm.push(Value(intType, (l.data as! Int) + (r.data as! Int)))

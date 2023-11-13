@@ -44,6 +44,7 @@ enum EmitError: Error {
 
 enum EvalError: Error {
     case missingValue
+    case typeMismatch(ValueType, ValueType)
 }
 
 typealias PC = Int
@@ -68,13 +69,13 @@ struct Function: CustomStringConvertible {
 
     typealias Body = (Function, VM) throws -> Void
     
-    let arguments: [String]
+    let arguments: [(String, ValueType)]
     let body: Body
     let name: String
 
     var description: String { name }
     
-    init(_ name: String, _ arguments: [String], _ body: @escaping Body) {
+    init(_ name: String, _ arguments: [(String, ValueType)], _ body: @escaping Body) {
         self.name = name
         self.arguments = arguments
         self.body = body
@@ -83,6 +84,15 @@ struct Function: CustomStringConvertible {
     func call(_ vm: VM) throws {
         if vm.stack.count < arguments.count {
             throw EvalError.missingValue
+        }
+
+        for i in 0..<arguments.count {
+            let expected = arguments[i].1
+            let actual  = vm.stack[vm.stack.count - arguments.count + i].type
+
+            if actual !== expected {
+                throw EvalError.typeMismatch(expected, actual)
+            }
         }
         
         try body(self, vm)
@@ -119,7 +129,7 @@ class Namespace {
     
     subscript(key: String) -> Value? {
         get {
-            return if let value = bindings[key] {
+            if let value = bindings[key] {
                 value
             } else if parent != nil {
                 parent![key]
@@ -127,7 +137,9 @@ class Namespace {
                 nil
             }
         }
-        set(value) { bindings[key] = value }
+        set(value) {
+            bindings[key] = value
+        }
     }
 
     init(_ parent: Namespace? = nil) {
@@ -183,6 +195,22 @@ class Literal: BasicForm, Form {
 
     func emit(_ vm: VM, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
         vm.emit(.push(value))
+    }
+}
+
+class Pair: BasicForm, Form {
+    let left: Form
+    let right: Form
+
+    override var description: String { "\(left):\(right)" }
+
+    init(_ left: Form, _ right: Form) {
+        self.left = left
+        self.right = right
+    }
+
+    func emit(_ vm: VM, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+        args.insert(Literal(Value(std.pairType, (left, right))), at: 0)
     }
 }
 
@@ -324,140 +352,149 @@ class VM {
     }
 }
 
-let stdLib = Namespace()
-
-func stdFunction(_ name: String, _ args: [String], _ body: @escaping Function.Body) {
-    stdLib[name] = Value(functionType, Function(name, args, body))
-}
-
-func stdMacro(_ name: String, _ arity: Int, _ body: @escaping Macro.Body) {
-    stdLib[name] = Value(macroType, Macro(name, arity, body))
-}
-
-class ArgumentType: ValueType {
-    init() {
-        super.init("Argument")
-    }
-
-    override func identifierEmit(_ value: Value, _ vm: VM,
-                                 inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-        vm.emit(.argument(value.data as! Int))
-    }
-}
-
-let argumentType = ArgumentType()
-
-class FunctionType: ValueType {
-    init() {
-        super.init("Function")
-    }
-
-    override func identifierEmit(_ value: Value, _ vm: VM,
-                                 inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-        let f = value.data as! Function
+class StdLib: Namespace {
+    class ArgumentType: ValueType {
+        init() {
+            super.init("Argument")
+        }
         
-        for _ in 0..<f.arguments.count {
-            if args.isEmpty {
-                throw EmitError.missingArgument
+        override func identifierEmit(_ value: Value, _ vm: VM,
+                                     inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+            vm.emit(.argument(value.data as! Int))
+        }
+    }
+
+    class FunctionType: ValueType {
+        init() {
+            super.init("Function")
+        }
+        
+        override func identifierEmit(_ value: Value, _ vm: VM,
+                                     inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+            let f = value.data as! Function
+            
+            for _ in 0..<f.arguments.count {
+                if args.isEmpty {
+                    throw EmitError.missingArgument
+                }
+                
+                try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             }
             
-            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+            vm.emit(.call(f))
         }
-
-        vm.emit(.call(f))
     }
-}
 
-let functionType = FunctionType()
-stdLib["Function"] = Value(metaType, functionType)
+    class IntType: ValueType {
+        init() {
+            super.init("Int")
+        }
+        
+        override func toBool(_ value: Value) -> Bool {
+            (value.data as! Int) != 0
+        }
+    }
 
-class IntType: ValueType {
+    class MacroType: ValueType {
+        init() {
+            super.init("Macro")
+        }
+        
+        override func identifierEmit(_ value: Value, _ vm: VM,
+                                     inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+            try (value.data as! Macro).emit(vm, inNamespace: ns, withArguments: &args)
+        }
+    }
+
+    class StringType: ValueType {
+        init() {
+            super.init("String")
+        }
+        
+        override func toBool(_ value: Value) -> Bool {
+            (value.data as! String).count != 0
+        }
+    }
+
+    let argumentType = ArgumentType()
+    let functionType = FunctionType()
+    let intType = IntType()
+    let macroType = MacroType()
+    let metaType = ValueType("Meta")
+    let pairType = ValueType("Pair")
+    let stringType = StringType()
+
     init() {
-        super.init("Int")
+        super.init()
+    
+        self["Function"] = Value(metaType, functionType)
+        self["Int"] = Value(metaType, intType)
+        self["Macro"] = Value(metaType, macroType)
+        self["Meta"] = Value(metaType, metaType)
+        self["Pair"] = Value(metaType, pairType)
+        self["String"] = Value(metaType, stringType)
+
+        bindMacro("function", 3) {(_, vm, ns, args) throws in
+            let id = (args.removeFirst() as! Identifier).name
+            let fargs = (args.removeFirst() as! List).items.map {
+                let p = $0 as! Pair
+                let n = (p.left as! Identifier).name
+                let t = ns[(p.right as! Identifier).name]!.data as! ValueType
+                return (n, t)
+            }
+            let body = args.removeFirst()
+            let skip = vm.emit(.nop)
+            let startPc = vm.emitPc
+            
+            let f = Function(id, fargs) {(f, vm) throws in
+                vm.callStack.append(Function.Call(f, stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc))
+                vm.pc = startPc
+            }
+        
+            ns[id] = Value(self.functionType, f)
+            let fns = Namespace(ns)
+            
+            for i in 0..<fargs.count {
+                fns[fargs[i].0] = Value(self.argumentType, i)
+            }
+            
+            try body.emit(vm, inNamespace: fns, withArguments: &args)
+            vm.emit(.popCall(f))
+            vm.code[skip] = .goto(vm.emitPc)
+        }
+    
+        bindMacro("or", 2) {(_, vm, ns, args) throws in
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+            let or = vm.emit(.nop)
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+            vm.code[or] = .or(vm.emitPc)
+        }
+    
+        bindMacro("trace", 0) {(_, vm, ns, args) throws in
+            vm.trace = !vm.trace
+        }
+    
+        bindFunction("+", [("left", intType), ("right", intType)]) {(_, vm) throws in
+            let r = vm.pop()
+            let l = vm.pop()
+            vm.push(Value(self.intType, (l.data as! Int) + (r.data as! Int)))
+        }
+        
+        bindFunction("yield", []) {(_, vm) throws in
+            vm.tasks.append(vm.tasks.removeFirst())
+        }
     }
 
-    override func toBool(_ value: Value) -> Bool {
-        (value.data as! Int) != 0
+    func bindFunction(_ name: String, _ args: [(String, ValueType)], _ body: @escaping Function.Body) {
+        bindings[name] = Value(functionType, Function(name, args, body))
+    }
+
+    func bindMacro(_ name: String, _ arity: Int, _ body: @escaping Macro.Body) {
+        bindings[name] = Value(macroType, Macro(name, arity, body))
     }
 }
 
-let intType = IntType()
-stdLib["Int"] = Value(metaType, intType)
-
-class MacroType: ValueType {
-    init() {
-        super.init("Macro")
-    }
-
-    override func identifierEmit(_ value: Value, _ vm: VM,
-                        inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-        try (value.data as! Macro).emit(vm, inNamespace: ns, withArguments: &args)
-    }
-}
-
-let macroType = MacroType()
-stdLib["Macro"] = Value(metaType, macroType)
-
-let metaType = ValueType("Meta")
-stdLib["Meta"] = Value(metaType, metaType)
-
-class StringType: ValueType {
-    init() {
-        super.init("String")
-    }
-
-    override func toBool(_ value: Value) -> Bool {
-        (value.data as! String).count != 0
-    }
-}
-
-let stringType = StringType()
-stdLib["String"] = Value(metaType, stringType)
-
-stdMacro("function", 3) {(_, vm, ns, args) throws in
-    let id = (args.removeFirst() as! Identifier).name
-    let fargs = (args.removeFirst() as! List).items.map {($0 as! Identifier).name}
-    let body = args.removeFirst()
-    let skip = vm.emit(.nop)
-    let startPc = vm.emitPc
-
-    let f = Function(id, fargs) {(f, vm) throws in
-        vm.callStack.append(Function.Call(f, stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc))
-        vm.pc = startPc
-    }
-
-    ns[id] = Value(functionType, f)
-    let fns = Namespace(ns)
-
-    for i in 0..<fargs.count {
-        fns[fargs[i]] = Value(argumentType, i)
-    }
-
-    try body.emit(vm, inNamespace: fns, withArguments: &args)
-    vm.emit(.popCall(f))
-    vm.code[skip] = .goto(vm.emitPc)
-}
-
-stdMacro("or", 2) {(_, vm, ns, args) throws in
-    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
-    let or = vm.emit(.nop)
-    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
-    vm.code[or] = .or(vm.emitPc)
-}
-
-stdMacro("trace", 0) {(_, vm, ns, args) throws in
-    vm.trace = !vm.trace
-}
-
-stdFunction("+", ["left", "right"]) {(_, vm) throws in
-    let r = vm.pop()
-    let l = vm.pop()
-    vm.push(Value(intType, (l.data as! Int) + (r.data as! Int)))
-}
-
-stdFunction("yield", []) {(_, vm) throws in
-    vm.tasks.append(vm.tasks.removeFirst())
-}
+let std = StdLib()
 
 /*
  Now we're ready to take it for a spin.
@@ -470,14 +507,14 @@ let vm = VM()
 
 let functionForms: [Form] = [Identifier("function"),
                              Identifier("identity"),
-                             List([Identifier("value")]),
+                             List([Pair(Identifier("value"), Identifier("Int"))]),
                              Identifier("value")]
 
-try functionForms.emit(vm, inNamespace: stdLib)
-let callForms: [Form] = [Identifier("identity"), Literal(Value(intType, 42))]
-try callForms.emit(vm, inNamespace: stdLib)
+try functionForms.emit(vm, inNamespace: std)
+let callForms: [Form] = [Identifier("identity"), Literal(Value(std.intType, 42))]
+try callForms.emit(vm, inNamespace: std)
 
-vm.emit(.push(Value(stringType, "Returned")))
+vm.emit(.push(Value(std.stringType, "Returned")))
 vm.emit(.stop)
 try vm.eval(fromPc: 0)
 
