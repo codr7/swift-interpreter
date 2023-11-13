@@ -352,7 +352,7 @@ class VM {
     }
 }
 
-class StdLib: Namespace {
+class StandardLibrary: Namespace {
     class ArgumentType: ValueType {
         init() {
             super.init("Argument")
@@ -406,6 +406,17 @@ class StdLib: Namespace {
         }
     }
 
+    class PairType: ValueType {
+        init() {
+            super.init("Pair")
+        }
+        
+        override func toBool(_ value: Value) -> Bool {
+            let v = value.data as! (Value, Value)
+            return v.0.toBool && v.1.toBool
+        }
+    }
+
     class StringType: ValueType {
         init() {
             super.init("String")
@@ -421,7 +432,7 @@ class StdLib: Namespace {
     let intType = IntType()
     let macroType = MacroType()
     let metaType = ValueType("Meta")
-    let pairType = ValueType("Pair")
+    let pairType = PairType()
     let stringType = StringType()
 
     init() {
@@ -486,15 +497,15 @@ class StdLib: Namespace {
     }
 
     func bindFunction(_ name: String, _ args: [(String, ValueType)], _ body: @escaping Function.Body) {
-        bindings[name] = Value(functionType, Function(name, args, body))
+        self[name] = Value(functionType, Function(name, args, body))
     }
 
     func bindMacro(_ name: String, _ arity: Int, _ body: @escaping Macro.Body) {
-        bindings[name] = Value(macroType, Macro(name, arity, body))
+        self[name] = Value(macroType, Macro(name, arity, body))
     }
 }
 
-let std = StdLib()
+let std = StandardLibrary()
 
 /*
  Now we're ready to take it for a spin.
