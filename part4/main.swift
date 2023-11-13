@@ -38,6 +38,7 @@ class ValueType: CustomStringConvertible {
 }
 
 enum EmitError: Error {
+    case invalidSyntax
     case missingArgument
     case unknownIdentifier(String)
 }
@@ -149,10 +150,21 @@ class Namespace {
 
 protocol Form: CustomStringConvertible {
     func emit(_ vm: VM, inNamespace: Namespace, withArguments: inout [Form]) throws
+    func cast<T: Form>(_ type: T.Type) throws -> T
 }
 
 class BasicForm {    
     var description: String { "\(self)" }
+
+    func cast<T: Form>(_ type: T.Type) throws -> T {
+        let f = self as? T
+
+        if f == nil {
+            throw EmitError.invalidSyntax
+        }
+
+        return f!
+    }
 }
 
 class Identifier: BasicForm, Form {    
@@ -446,13 +458,21 @@ class StandardLibrary: Namespace {
         self["String"] = Value(metaType, stringType)
 
         bindMacro("function", 3) {(_, vm, ns, args) throws in
-            let id = (args.removeFirst() as! Identifier).name
-            let fargs = (args.removeFirst() as! List).items.map {
-                let p = $0 as! Pair
-                let n = (p.left as! Identifier).name
-                let t = ns[(p.right as! Identifier).name]!.data as! ValueType
-                return (n, t)
+            let id = try args.removeFirst().cast(Identifier.self).name
+
+            let fargs = try args.removeFirst().cast(List.self).items.map {(it) in
+                let p = try it.cast(Pair.self)
+                let n = try p.left.cast(Identifier.self).name
+                let tid = try p.right.cast(Identifier.self).name
+                let t = ns[tid]
+
+                if t == nil {
+                    throw EmitError.unknownIdentifier(tid)
+                }
+                
+                return (n, t!.data as! ValueType)
             }
+            
             let body = args.removeFirst()
             let skip = vm.emit(.nop)
             let startPc = vm.emitPc
