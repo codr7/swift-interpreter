@@ -1,4 +1,3 @@
-* add readPair (x:Int) to part5
 * update part6
 ** copy part5 and make changes
 * update part7

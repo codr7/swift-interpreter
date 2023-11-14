@@ -1,9 +1,6 @@
-struct Value: CustomStringConvertible {
+struct Value {
     let data: Any
     let type: any ValueType
-
-    var description: String { type.toString(self) }
-    var toBool: Bool { type.toBool(self) }
     
     init(_ type: any ValueType, _ data: Any) {
         self.type = type
@@ -13,6 +10,14 @@ struct Value: CustomStringConvertible {
     func identifierEmit(_ vm: VM, at pos: Position,
                         inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
         try self.type.identifierEmit(self, vm, at: pos, inNamespace: ns, withArguments: &args)
+    }
+
+    func toBool(at pos: Position) throws -> Bool {
+        try type.toBool(self, at: pos)
+    }
+
+    func toString(at pos: Position) throws -> String {
+        try type.toString(self, at: pos)
     }
 }
 
@@ -27,8 +32,8 @@ protocol ValueType: CustomStringConvertible {
     
     func identifierEmit(_ value: Value, _ vm: VM, at: Position, inNamespace: Namespace, withArguments args: inout [Form]) throws
 
-    func toBool(_ value: Value) -> Bool
-    func toString(_ value: Value) -> String
+    func toBool(_ value: Value, at: Position) throws -> Bool
+    func toString(_ value: Value, at: Position) throws -> String
 }
 
 class BasicValueType<V>: ValueType {
@@ -40,7 +45,7 @@ class BasicValueType<V>: ValueType {
     }
 
     func cast(_ value: Value, at pos: Position) throws -> V {
-        let v = value as? V
+        let v = value.data as? V
 
         if v == nil {
             throw EvalError.typeMismatch(pos, self, value.type)
@@ -61,11 +66,11 @@ class BasicValueType<V>: ValueType {
         args.insert(Literal(pos, value), at: 0)
     }
 
-    func toString(_ value: Value) -> String {
+    func toString(_ value: Value, at: Position) throws -> String {
         "\(value.data)"        
     }
 
-    func toBool(_ value: Value) -> Bool {
+    func toBool(_ value: Value, at: Position) throws -> Bool {
         true
     }
 }
@@ -82,8 +87,7 @@ enum EvalError: Error {
 }
 
 enum ReadError: Error {
-    case openList(Position)
-    case openString(Position)
+    case invalidSyntax(Position)
 }
 
 typealias PC = Int
@@ -398,7 +402,7 @@ class VM {
             case .nop:
                 pc += 1
             case let .or(pos, endPc):
-                if try safePop(at: pos).toBool {
+                if try safePop(at: pos).toBool(at: pos) {
                     pc = endPc
                 } else {
                     pc += 1
@@ -481,31 +485,25 @@ struct Input {
  Readers convert source code to forms.
  */
 
-typealias Reader = (_ input: inout Input, _ pos: inout Position) throws -> Form?
+typealias Reader = (_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool
 
-let readers = [readWhitespace, readInt, readList, readString, readIdentifier]
+let readers = [readWhitespace, readPair, readList, readString, readInt, readIdentifier]
 
-func readForm(_ input: inout Input, _ pos: inout Position) throws -> Form? {
+func readForm(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
     for r in readers {
-        if let f = try r(&input, &pos) {
-            return f
-        }
+        if try r(&input, &output, &pos) { return true }
     }
 
-    return nil
+    return false
 }
 
-func readForms(_ reader: Reader, _ input: inout Input, _ pos: inout Position) throws -> [Form] {
-    var output: [Form] = []
-    
-    while let f = try reader(&input, &pos) {
-        output.append(f)
-    }
-
-    return output
+func readForms(_ reader: Reader, _ input: inout Input, _ output: [Form], _ pos: inout Position) throws -> [Form] {
+    var result = output
+    while try reader(&input, &result, &pos) {}
+    return result
 }
 
-func readIdentifier(_ input: inout Input, _ pos: inout Position) throws -> Form? {
+func readIdentifier(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
     let fpos = pos
     var name = ""
     
@@ -519,16 +517,18 @@ func readIdentifier(_ input: inout Input, _ pos: inout Position) throws -> Form?
         pos.column += 1
     }
     
-    return (name.count == 0) ? nil : Identifier(fpos, name)
+    if (name.count == 0) { return false }
+    output.append(Identifier(fpos, name))
+    return true
 }
 
-func readInt(_ input: inout Input, _ pos: inout Position) throws -> Form? {
+func readInt(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
     let fpos = pos
     var v = 0
     var neg = false
     
     let c = input.popChar()
-    if c == nil { return nil }
+    if c == nil { return false }
     
     if c == "-" {
         if let c = input.popChar() {
@@ -554,47 +554,70 @@ func readInt(_ input: inout Input, _ pos: inout Position) throws -> Form? {
         pos.column += 1
     }
     
-    return (pos.column == fpos.column) ? nil : Literal(fpos, Value(std.intType, neg ? -v : v))
+    if (pos.column == fpos.column) { return false; }
+    output.append(Literal(fpos, Value(std.intType, neg ? -v : v)))
+    return true
 }
 
-func readList(_ input: inout Input, _ pos: inout Position) throws -> Form? {
+func readPair(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
+    let fpos = pos
+    let c = input.popChar()
+    
+    if c != ":" {
+        if c != nil { input.pushChar(c!) }
+        return false
+    }
+    
+    pos.column += 1
+    try readWhitespace(&input, &output, &pos)
+
+    if try output.isEmpty || !readForm(&input, &output, &pos) {
+        throw ReadError.invalidSyntax(pos)
+    }
+
+    let right = output.removeLast()
+    let left = output.removeLast()
+    output.append(Pair(fpos, left, right))
+    return true
+}
+
+func readList(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
     let fpos = pos
     var c = input.popChar()
     
     if c != "(" {
         if c != nil { input.pushChar(c!) }
-        return nil
+        return false
     }
     
     pos.column += 1
     var items: [Form] = []
 
     while true {
-        _ = try readWhitespace(&input, &pos)
+        try readWhitespace(&input, &output, &pos)
         c = input.popChar()
         if c == nil || c == ")" { break }
         input.pushChar(c!)
 
-        if let f = try readForm(&input, &pos) {
-            items.append(f)
+        if try readForm(&input, &output, &pos) {
+            items.append(output.removeLast())
         } else {
-            break
+            throw ReadError.invalidSyntax(fpos)
         }
     }
 
-    if c != ")" { throw ReadError.openList(fpos) }
     pos.column += 1
-    
-    return List(fpos, items)
+    output.append(List(fpos, items))
+    return true
 }
 
-func readString(_ input: inout Input, _ pos: inout Position) throws -> Form? {
+func readString(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
     let fpos = pos
     var c = input.popChar()
     
     if c != "\"" {
         if c != nil { input.pushChar(c!) }
-        return nil
+        return false
     }
     
     pos.column += 1
@@ -606,12 +629,16 @@ func readString(_ input: inout Input, _ pos: inout Position) throws -> Form? {
         body.append(c!)
     }
 
-    if c != "\"" { throw ReadError.openString(fpos) }
+    if c != "\"" { throw ReadError.invalidSyntax(fpos) }
     pos.column += 1
-    return Literal(fpos, Value(std.stringType, String(body)))
+    output.append(Literal(fpos, Value(std.stringType, String(body))))
+    return true
 }
 
-func readWhitespace(_ input: inout Input, _ pos: inout Position) throws -> Form? {
+@discardableResult
+func readWhitespace(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
+    let p = pos
+    
     while let c = input.popChar() {
         if c.isNewline {
             pos.line += 1
@@ -623,7 +650,7 @@ func readWhitespace(_ input: inout Input, _ pos: inout Position) throws -> Form?
         }
     }
     
-    return nil
+    return pos.line != p.line || pos.column != p.column
 }
 
 class StandardLibrary: Namespace {
@@ -633,8 +660,8 @@ class StandardLibrary: Namespace {
         }
         
         override func identifierEmit(_ value: Value, _ vm: VM,
-                                     at: Position, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-            vm.emit(.argument(value.data as! Int))
+                                     at pos: Position, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
+            vm.emit(.argument(try cast(value, at: pos)))
         }
     }
 
@@ -645,7 +672,7 @@ class StandardLibrary: Namespace {
         
         override func identifierEmit(_ value: Value, _ vm: VM,
                                      at pos: Position, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-            let f = value.data as! Function
+            let f = try cast(value, at: pos)
             
             for _ in 0..<f.arguments.count {
                 if args.isEmpty {
@@ -664,8 +691,8 @@ class StandardLibrary: Namespace {
             super.init("Int")
         }
         
-        override func toBool(_ value: Value) -> Bool {
-            (value.data as! Int) != 0
+        override func toBool(_ value: Value, at pos: Position) throws -> Bool {
+            try cast(value, at: pos) != 0
         }
     }
 
@@ -676,7 +703,7 @@ class StandardLibrary: Namespace {
         
         override func identifierEmit(_ value: Value, _ vm: VM,
                                      at pos: Position, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-            try (value.data as! Macro).emit(vm, at: pos, inNamespace: ns, withArguments: &args)
+            try cast(value, at: pos).emit(vm, at: pos, inNamespace: ns, withArguments: &args)
         }
     }
 
@@ -685,9 +712,14 @@ class StandardLibrary: Namespace {
             super.init("Pair")
         }
         
-        override func toBool(_ value: Value) -> Bool {
-            let v = value.data as! (Value, Value)
-            return v.0.toBool && v.1.toBool
+        override func toBool(_ value: Value, at pos: Position) throws -> Bool {
+            let v = try cast(value, at: pos)
+            return try v.0.toBool(at: pos) && v.1.toBool(at: pos)
+        }
+
+        override func toString(_ value: Value, at pos: Position) throws -> String {
+            let p = try cast(value, at: pos)
+            return "\(try p.0.toString(at: pos)):\(try p.1.toString(at: pos))"
         }
     }
 
@@ -696,12 +728,12 @@ class StandardLibrary: Namespace {
             super.init("String")
         }
         
-        override func toBool(_ value: Value) -> Bool {
-            (value.data as! String).count != 0
+        override func toBool(_ value: Value, at pos: Position) throws -> Bool {
+            try cast(value, at: pos).count != 0
         }
 
-        override func toString(_ value: Value) -> String {
-            "\"\(value.data as! String)\""
+        override func toString(_ value: Value, at pos: Position) throws -> String {
+            "\"\(try cast(value, at: pos))\""
         }
     }
 
@@ -724,8 +756,8 @@ class StandardLibrary: Namespace {
         self["String"] = Value(metaType, stringType)
 
         bindMacro("constant", 2) {(_, vm, pos, ns, args) throws in
-            let name = (args.removeFirst() as! Identifier).name
-            let value = (args.removeFirst() as! Literal).value
+            let name = try args.removeFirst().cast(Identifier.self).name
+            let value = try args.removeFirst().cast(Literal.self).value
             ns[name] = value
         }
 
@@ -742,7 +774,7 @@ class StandardLibrary: Namespace {
                     throw EmitError.unknownIdentifier(p.right.position, tid)
                 }
                 
-                return (n, t!.data as! any ValueType)
+                return try (n, self.metaType.cast(t!, at: pos))
             }
             
             let body = args.removeFirst()
@@ -785,9 +817,9 @@ class StandardLibrary: Namespace {
         }
     
         bindFunction("+", [("left", intType), ("right", intType)]) {(_, vm, pos) throws in
-            let r = vm.pop()
-            let l = vm.pop()
-            vm.push(Value(self.intType, (l.data as! Int) + (r.data as! Int)))
+            let r = try self.intType.cast(vm.pop(), at: pos)
+            let l = try self.intType.cast(vm.pop(), at: pos)
+            vm.push(Value(self.intType, l + r))
         }
         
         bindFunction("yield", []) {(_, vm, pos) throws in
@@ -817,12 +849,12 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
         if line == nil || line! == "\n" {
             do {
                 var pos = Position("repl")
-                let fs = try readForms(reader, &input, &pos)
+                let fs = try readForms(reader, &input, [], &pos)
                 let pc = vm.emitPc
                 try fs.emit(vm, inNamespace: ns)
                 vm.emit(.stop)
                 try vm.eval(fromPc: pc)
-                print("\(vm.stack.isEmpty ? "_" : "\(vm.pop())")\n")
+                print("\(vm.stack.isEmpty ? "_" : "\(try vm.pop().toString(at: pos))")\n")
                 input.reset()
             } catch {
                 print("\(error)\n")
