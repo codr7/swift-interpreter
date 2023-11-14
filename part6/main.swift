@@ -221,7 +221,6 @@ class BasicForm {
         let f = self as? T
 
         if f == nil {
-            print("Form \(self) \(type) \(Self.self)")
             throw EmitError.invalidSyntax(position)
         }
 
@@ -583,7 +582,6 @@ func readList(_ input: inout Input, _ output: inout [Form], _ pos: inout Positio
 
     if c != ")" {
         if c != nil { input.pushChar(c!) }
-        print("readList")
         throw ReadError.invalidSyntax(fpos)
     }
     
@@ -605,7 +603,6 @@ func readPair(_ input: inout Input, _ output: inout [Form], _ pos: inout Positio
     try readWhitespace(&input, &output, &pos)
 
     if try output.isEmpty || !readForm(&input, &output, &pos) {
-        print("readPair")
         throw ReadError.invalidSyntax(pos)
     }
     
@@ -634,7 +631,6 @@ func readString(_ input: inout Input, _ output: inout [Form], _ pos: inout Posit
     }
 
     if c != "\"" {
-        print("readString")
         throw ReadError.invalidSyntax(fpos)
     }
     
