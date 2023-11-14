@@ -1,6 +1,6 @@
 struct Value: CustomStringConvertible {
-    let type: ValueType
     let data: Any
+    let type: ValueType
     
     var description: String { type.toString(self) }
 

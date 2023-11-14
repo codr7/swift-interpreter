@@ -1,6 +1,6 @@
 struct Value: CustomStringConvertible {
-    let type: any ValueType
     let data: Any
+    let type: any ValueType
 
     var description: String { type.toString(self) }
     var toBool: Bool { type.toBool(self) }
@@ -68,7 +68,6 @@ class BasicValueType<V>: ValueType {
     func toBool(_ value: Value) -> Bool {
         true
     }
-
 }
 
 enum EmitError: Error {
@@ -85,11 +84,6 @@ enum EvalError: Error {
 typealias PC = Int
 
 struct Function: CustomStringConvertible {
-    /*
-     Calls are used to construct the call stack for user defined functions.
-     They keep track of the target being called, it's arguments and the return PC.
-     */
-    
     struct Call {
         let returnPc: PC
         let stackOffset: Int
@@ -183,8 +177,8 @@ class Namespace {
 }
 
 protocol Form: CustomStringConvertible {
-    func emit(_ vm: VM, inNamespace: Namespace, withArguments: inout [Form]) throws
     func cast<T: Form>(_ type: T.Type) throws -> T
+    func emit(_ vm: VM, inNamespace: Namespace, withArguments: inout [Form]) throws
 }
 
 class BasicForm {    
@@ -388,20 +382,20 @@ class VM {
         }
     }
 
-    func safePop() throws -> Value {
-        if stack.isEmpty {
-            throw EvalError.missingValue
-        }
-
-        return pop()
-    }
-
     func pop() -> Value {
         currentTask!.stack.removeLast()
     }
 
     func push(_ value: Value) {
         currentTask!.stack.append(value)
+    }
+
+    func safePop() throws -> Value {
+        if stack.isEmpty {
+            throw EvalError.missingValue
+        }
+
+        return pop()
     }
 
     func startTask(pc: PC = 0) {
@@ -484,6 +478,10 @@ class StandardLibrary: Namespace {
         override func toBool(_ value: Value) -> Bool {
             (value.data as! String).count != 0
         }
+
+        override func toString(_ value: Value) -> String {
+            "\"\(value.data as! String)\""
+        }        
     }
 
     let argumentType = ArgumentType()

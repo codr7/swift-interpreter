@@ -70,8 +70,8 @@ We'll use structs to represent values, every value has a type.
 
 ```
 struct Value: CustomStringConvertible {
-    let type: ValueType
     let data: Any
+    let type: ValueType
 
     var description: String { type.dump(self) }
 

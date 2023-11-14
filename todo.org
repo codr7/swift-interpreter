@@ -1,7 +1,8 @@
-* fix value casting in part 4..
-* fix form type casts in part 5..
-* finish argument type/std conversion in part 5..
-** add readPair (x:Int)
+* add readPair (x:Int) to part5
+* update part6
+** copy part5 and make changes
+* update part7
+** copy part4 and make changes
 * ---
 * cache constant stack suffix in call/tailCall ops
 ** benchmark
