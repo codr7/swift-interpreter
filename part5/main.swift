@@ -497,7 +497,7 @@ func readForm(_ input: inout Input, _ output: inout [Form], _ pos: inout Positio
     return false
 }
 
-func readForms(_ reader: Reader, _ input: inout Input, _ output: [Form], _ pos: inout Position) throws -> [Form] {
+func readAll(_ reader: Reader, _ input: inout Input, _ output: [Form], _ pos: inout Position) throws -> [Form] {
     var result = output
     while try reader(&input, &result, &pos) {}
     return result
@@ -508,7 +508,7 @@ func readIdentifier(_ input: inout Input, _ output: inout [Form], _ pos: inout P
     var name = ""
     
     while let c = input.popChar() {
-        if c.isWhitespace || c == "(" || c == ")" {
+        if c.isWhitespace || c == "(" || c == ")" || c == ":" {
             input.pushChar(c)
             break
         }
@@ -534,6 +534,7 @@ func readInt(_ input: inout Input, _ output: inout [Form], _ pos: inout Position
         if let c = input.popChar() {
             if c.isNumber {
                 neg = true
+                pos.column += 1
             } else {
                 input.pushChar(c)
                 input.pushChar("-")
@@ -559,6 +560,30 @@ func readInt(_ input: inout Input, _ output: inout [Form], _ pos: inout Position
     return true
 }
 
+func readList(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
+    let fpos = pos
+    var c = input.popChar()
+    
+    if c != "(" {
+        if c != nil { input.pushChar(c!) }
+        return false
+    }
+    
+    pos.column += 1
+    let items = try readAll(readForm, &input, [], &pos)
+    c = input.popChar()
+
+    if c != ")" {
+        if c != nil { input.pushChar(c!) }
+        print("readList")
+        throw ReadError.invalidSyntax(fpos)
+    }
+    
+    pos.column += 1
+    output.append(List(fpos, items))
+    return true
+}
+
 func readPair(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
     let fpos = pos
     let c = input.popChar()
@@ -581,36 +606,6 @@ func readPair(_ input: inout Input, _ output: inout [Form], _ pos: inout Positio
     return true
 }
 
-func readList(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
-    let fpos = pos
-    var c = input.popChar()
-    
-    if c != "(" {
-        if c != nil { input.pushChar(c!) }
-        return false
-    }
-    
-    pos.column += 1
-    var items: [Form] = []
-
-    while true {
-        try readWhitespace(&input, &output, &pos)
-        c = input.popChar()
-        if c == nil || c == ")" { break }
-        input.pushChar(c!)
-
-        if try readForm(&input, &output, &pos) {
-            items.append(output.removeLast())
-        } else {
-            throw ReadError.invalidSyntax(fpos)
-        }
-    }
-
-    pos.column += 1
-    output.append(List(fpos, items))
-    return true
-}
-
 func readString(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
     let fpos = pos
     var c = input.popChar()
@@ -629,7 +624,10 @@ func readString(_ input: inout Input, _ output: inout [Form], _ pos: inout Posit
         body.append(c!)
     }
 
-    if c != "\"" { throw ReadError.invalidSyntax(fpos) }
+    if c != "\"" {
+        throw ReadError.invalidSyntax(fpos)
+    }
+    
     pos.column += 1
     output.append(Literal(fpos, Value(std.stringType, String(body))))
     return true
@@ -849,7 +847,7 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
         if line == nil || line! == "\n" {
             do {
                 var pos = Position("repl")
-                let fs = try readForms(reader, &input, [], &pos)
+                let fs = try readAll(reader, &input, [], &pos)
                 let pc = vm.emitPc
                 try fs.emit(vm, inNamespace: ns)
                 vm.emit(.stop)

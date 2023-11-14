@@ -66,12 +66,12 @@ class BasicValueType<V>: ValueType {
         args.insert(Literal(pos, value), at: 0)
     }
 
-    func toString(_ value: Value, at: Position) throws -> String {
-        "\(value.data)"        
-    }
-
     func toBool(_ value: Value, at: Position) throws -> Bool {
         true
+    }
+
+    func toString(_ value: Value, at: Position) throws -> String {
+        "\(value.data)"        
     }
 }
 
@@ -221,6 +221,7 @@ class BasicForm {
         let f = self as? T
 
         if f == nil {
+            print("Form \(self) \(type) \(Self.self)")
             throw EmitError.invalidSyntax(position)
         }
 
@@ -314,6 +315,7 @@ extension [Form] {
 
 enum Op {
     case argument(Int)
+    case branch(Position, PC)
     case call(Position, Function)
     case goto(PC)
     case makePair(Position)
@@ -389,6 +391,12 @@ class VM {
             case let.argument(index):
                 vm.push(vm.stack[vm.callStack.last!.stackOffset+index])
                 pc += 1
+            case let .branch(pos, elsePc):
+                if try safePop(at: pos).toBool(at: pos) {
+                    pc += 1
+                } else {
+                    pc = elsePc
+                }
             case let .call(pos, target):
                 pc += 1
                 try target.call(self, at: pos)
@@ -497,7 +505,7 @@ func readForm(_ input: inout Input, _ output: inout [Form], _ pos: inout Positio
     return false
 }
 
-func readForms(_ reader: Reader, _ input: inout Input, _ output: [Form], _ pos: inout Position) throws -> [Form] {
+func readAll(_ reader: Reader, _ input: inout Input, _ output: [Form], _ pos: inout Position) throws -> [Form] {
     var result = output
     while try reader(&input, &result, &pos) {}
     return result
@@ -508,7 +516,7 @@ func readIdentifier(_ input: inout Input, _ output: inout [Form], _ pos: inout P
     var name = ""
     
     while let c = input.popChar() {
-        if c.isWhitespace || c == "(" || c == ")" {
+        if c.isWhitespace || c == "(" || c == ")" || c == ":" {
             input.pushChar(c)
             break
         }
@@ -534,6 +542,7 @@ func readInt(_ input: inout Input, _ output: inout [Form], _ pos: inout Position
         if let c = input.popChar() {
             if c.isNumber {
                 neg = true
+                pos.column += 1
             } else {
                 input.pushChar(c)
                 input.pushChar("-")
@@ -559,6 +568,30 @@ func readInt(_ input: inout Input, _ output: inout [Form], _ pos: inout Position
     return true
 }
 
+func readList(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
+    let fpos = pos
+    var c = input.popChar()
+    
+    if c != "(" {
+        if c != nil { input.pushChar(c!) }
+        return false
+    }
+    
+    pos.column += 1
+    let items = try readAll(readForm, &input, [], &pos)
+    c = input.popChar()
+
+    if c != ")" {
+        if c != nil { input.pushChar(c!) }
+        print("readList")
+        throw ReadError.invalidSyntax(fpos)
+    }
+    
+    pos.column += 1
+    output.append(List(fpos, items))
+    return true
+}
+
 func readPair(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
     let fpos = pos
     let c = input.popChar()
@@ -572,42 +605,13 @@ func readPair(_ input: inout Input, _ output: inout [Form], _ pos: inout Positio
     try readWhitespace(&input, &output, &pos)
 
     if try output.isEmpty || !readForm(&input, &output, &pos) {
+        print("readPair")
         throw ReadError.invalidSyntax(pos)
     }
-
+    
     let right = output.removeLast()
     let left = output.removeLast()
     output.append(Pair(fpos, left, right))
-    return true
-}
-
-func readList(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
-    let fpos = pos
-    var c = input.popChar()
-    
-    if c != "(" {
-        if c != nil { input.pushChar(c!) }
-        return false
-    }
-    
-    pos.column += 1
-    var items: [Form] = []
-
-    while true {
-        try readWhitespace(&input, &output, &pos)
-        c = input.popChar()
-        if c == nil || c == ")" { break }
-        input.pushChar(c!)
-
-        if try readForm(&input, &output, &pos) {
-            items.append(output.removeLast())
-        } else {
-            throw ReadError.invalidSyntax(fpos)
-        }
-    }
-
-    pos.column += 1
-    output.append(List(fpos, items))
     return true
 }
 
@@ -629,7 +633,11 @@ func readString(_ input: inout Input, _ output: inout [Form], _ pos: inout Posit
         body.append(c!)
     }
 
-    if c != "\"" { throw ReadError.invalidSyntax(fpos) }
+    if c != "\"" {
+        print("readString")
+        throw ReadError.invalidSyntax(fpos)
+    }
+    
     pos.column += 1
     output.append(Literal(fpos, Value(std.stringType, String(body))))
     return true
@@ -665,6 +673,20 @@ class StandardLibrary: Namespace {
         }
     }
 
+    class BoolType: BasicValueType<Bool> {
+        init() {
+            super.init("Bool")
+        }
+        
+        override func toBool(_ value: Value, at pos: Position) throws -> Bool {
+            try cast(value, at: pos)
+        }
+
+        override func toString(_ value: Value, at pos: Position) throws -> String {
+            "\(try cast(value, at: pos))"
+        }
+    }
+    
     class FunctionType: BasicValueType<Function> {
         init() {
             super.init("Function")
@@ -738,6 +760,7 @@ class StandardLibrary: Namespace {
     }
 
     let argumentType = ArgumentType()
+    let boolType = BoolType()
     let functionType = FunctionType()
     let intType = IntType()
     let macroType = MacroType()
@@ -748,6 +771,7 @@ class StandardLibrary: Namespace {
     init() {
         super.init()
     
+        self["Bool"] = Value(metaType, boolType)
         self["Function"] = Value(metaType, functionType)
         self["Int"] = Value(metaType, intType)
         self["Macro"] = Value(metaType, macroType)
@@ -755,6 +779,9 @@ class StandardLibrary: Namespace {
         self["Pair"] = Value(metaType, pairType)
         self["String"] = Value(metaType, stringType)
 
+        self["true"] = Value(boolType, true)
+        self["false"] = Value(boolType, false)
+        
         bindMacro("constant", 2) {(_, vm, pos, ns, args) throws in
             let name = try args.removeFirst().cast(Identifier.self).name
             let value = try args.removeFirst().cast(Literal.self).value
@@ -798,6 +825,27 @@ class StandardLibrary: Namespace {
             vm.code[skip] = .goto(vm.emitPc)
         }
 
+        bindMacro("if", 2) {(_, vm, pos, ns, args) throws in
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+            let ifPc = vm.emit(.nop)
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+            var elsePc = vm.emitPc
+            
+            if !args.isEmpty {
+                if let next = args.first as? Identifier {
+                    if next.name == "else" {
+                        _ = args.removeFirst()
+                        let skipPc = vm.emit(.nop)
+                        elsePc = vm.emitPc
+                        try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+                        vm.code[skipPc] = .goto(vm.emitPc)
+                    }
+                }
+            }
+            
+            vm.code[ifPc] = .branch(pos, elsePc)
+        }
+        
         bindMacro("or", 2) {(_, vm, pos, ns, args) throws in
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             let or = vm.emit(.nop)
@@ -815,11 +863,35 @@ class StandardLibrary: Namespace {
         bindMacro("trace", 0) {(_, vm, pos, ns, args) throws in
             vm.trace = !vm.trace
         }
-    
+
+        bindFunction("=", [("left", intType), ("right", intType)]) {(_, vm, pos) throws in
+            let r = try self.intType.cast(vm.pop(), at: pos)
+            let l = try self.intType.cast(vm.pop(), at: pos)
+            vm.push(Value(self.boolType, l == r))
+        }
+
+        bindFunction("<", [("left", intType), ("right", intType)]) {(_, vm, pos) throws in
+            let r = try self.intType.cast(vm.pop(), at: pos)
+            let l = try self.intType.cast(vm.pop(), at: pos)
+            vm.push(Value(self.boolType, l < r))
+        }
+        
+        bindFunction(">", [("left", intType), ("right", intType)]) {(_, vm, pos) throws in
+            let r = try self.intType.cast(vm.pop(), at: pos)
+            let l = try self.intType.cast(vm.pop(), at: pos)
+            vm.push(Value(self.boolType, l > r))
+        }
+        
         bindFunction("+", [("left", intType), ("right", intType)]) {(_, vm, pos) throws in
             let r = try self.intType.cast(vm.pop(), at: pos)
             let l = try self.intType.cast(vm.pop(), at: pos)
             vm.push(Value(self.intType, l + r))
+        }
+
+        bindFunction("-", [("left", intType), ("right", intType)]) {(_, vm, pos) throws in
+            let r = try self.intType.cast(vm.pop(), at: pos)
+            let l = try self.intType.cast(vm.pop(), at: pos)
+            vm.push(Value(self.intType, l - r))
         }
         
         bindFunction("yield", []) {(_, vm, pos) throws in
@@ -849,7 +921,7 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
         if line == nil || line! == "\n" {
             do {
                 var pos = Position("repl")
-                let fs = try readForms(reader, &input, [], &pos)
+                let fs = try readAll(reader, &input, [], &pos)
                 let pc = vm.emitPc
                 try fs.emit(vm, inNamespace: ns)
                 vm.emit(.stop)
