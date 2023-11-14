@@ -1,9 +1,8 @@
-* fix value casting in part 4
-** add template parameter to value type
-** add func to cast Value.data to parameter type
+* fix value casting in part 4..
 * fix form type casts in part 5..
 * finish argument type/std conversion in part 5..
 ** add readPair (x:Int)
+* ---
 * cache constant stack suffix in call/tailCall ops
 ** benchmark
 * perform literal argument type checks at compile time

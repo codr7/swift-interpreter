@@ -1,11 +1,11 @@
 struct Value: CustomStringConvertible {
-    let type: ValueType
+    let type: any ValueType
     let data: Any
 
     var description: String { type.toString(self) }
     var toBool: Bool { type.toBool(self) }
     
-    init(_ type: ValueType, _ data: Any) {
+    init<T>(_ type: BasicValueType<T>, _ data: T) {
         self.type = type
         self.data = data
     }
@@ -16,25 +16,59 @@ struct Value: CustomStringConvertible {
     }
 }
 
-class ValueType: CustomStringConvertible {
+protocol ValueType: CustomStringConvertible {
+    associatedtype V
+    
+    var name: String { get }
+
+    func cast(_ value: Value) throws -> V
+
+    func equals(_ other: any ValueType) -> Bool
+    
+    func identifierEmit(_ value: Value, _ vm: VM, inNamespace: Namespace, withArguments args: inout [Form]) throws
+
+    func toBool(_ value: Value) -> Bool
+    func toString(_ value: Value) -> String
+}
+
+class BasicValueType<V>: ValueType {
     let name: String
     var description: String { name }
-    
+
     init(_ name: String) {
         self.name = name
     }
 
-    func toString(_ value: Value) -> String {
-        "\(value.data)"        
+    func cast(_ value: Value) throws -> V {
+        let v = value as? V
+
+        if v == nil {
+            throw EvalError.typeMismatch(self, value.type)
+        }
+
+        return v!
+    }
+
+    func equals(_ other: any ValueType) -> Bool {
+        if let rhs = other as? BasicValueType<V> {
+            return self === rhs
+        }
+
+        return false
     }
 
     func identifierEmit(_ value: Value, _ vm: VM, inNamespace: Namespace, withArguments args: inout [Form]) throws {
         args.insert(Literal(value), at: 0)
     }
 
+    func toString(_ value: Value) -> String {
+        "\(value.data)"        
+    }
+
     func toBool(_ value: Value) -> Bool {
         true
     }
+
 }
 
 enum EmitError: Error {
@@ -45,7 +79,7 @@ enum EmitError: Error {
 
 enum EvalError: Error {
     case missingValue
-    case typeMismatch(ValueType, ValueType)
+    case typeMismatch(any ValueType, any ValueType)
 }
 
 typealias PC = Int
@@ -70,13 +104,13 @@ struct Function: CustomStringConvertible {
 
     typealias Body = (Function, VM) throws -> Void
     
-    let arguments: [(String, ValueType)]
+    let arguments: [(String, any ValueType)]
     let body: Body
     let name: String
 
     var description: String { name }
     
-    init(_ name: String, _ arguments: [(String, ValueType)], _ body: @escaping Body) {
+    init(_ name: String, _ arguments: [(String, any ValueType)], _ body: @escaping Body) {
         self.name = name
         self.arguments = arguments
         self.body = body
@@ -91,7 +125,7 @@ struct Function: CustomStringConvertible {
             let expected = arguments[i].1
             let actual  = vm.stack[vm.stack.count - arguments.count + i].type
 
-            if actual !== expected {
+            if !actual.equals(expected) {
                 throw EvalError.typeMismatch(expected, actual)
             }
         }
@@ -222,7 +256,15 @@ class Pair: BasicForm, Form {
     }
 
     func emit(_ vm: VM, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-        args.insert(Literal(Value(std.pairType, (left, right))), at: 0)
+        if left is Literal && right is Literal {
+            args.insert(Literal(Value(std.pairType, ((left as! Literal).value,
+                                                     (right as! Literal).value))),
+                        at: 0)
+        } else {
+            try left.emit(vm, inNamespace: ns, withArguments: &args)
+            try right.emit(vm, inNamespace: ns, withArguments: &args)
+            vm.emit(.makePair)
+        }
     }
 }
 
@@ -240,6 +282,7 @@ enum Op {
     case argument(Int)
     case call(Function)
     case goto(PC)
+    case makePair
     case nop
     case or(PC)
     case popCall(Function)
@@ -316,18 +359,18 @@ class VM {
                 try target.call(self)
             case let .goto(targetPc):
                 pc = targetPc
+            case .makePair:
+                let right = try safePop()
+                let left = try safePop()
+                push(Value(std.pairType, (left, right)))
+                pc += 1
             case .nop:
                 pc += 1
             case let .or(endPc):
-                if let l = peek() {
-                    if l.toBool {
-                        pc = endPc
-                    } else {
-                        _ = pop()
-                        pc += 1
-                    }
+                if try safePop().toBool {
+                    pc = endPc
                 } else {
-                    throw EvalError.missingValue
+                    pc += 1
                 }
             case let .popCall(target):
                 let c = vm.callStack.removeLast()
@@ -345,8 +388,12 @@ class VM {
         }
     }
 
-    func peek() -> Value? {
-        currentTask!.stack.last
+    func safePop() throws -> Value {
+        if stack.isEmpty {
+            throw EvalError.missingValue
+        }
+
+        return pop()
     }
 
     func pop() -> Value {
@@ -365,7 +412,7 @@ class VM {
 }
 
 class StandardLibrary: Namespace {
-    class ArgumentType: ValueType {
+    class ArgumentType: BasicValueType<Int> {
         init() {
             super.init("Argument")
         }
@@ -376,7 +423,7 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class FunctionType: ValueType {
+    class FunctionType: BasicValueType<Function> {
         init() {
             super.init("Function")
         }
@@ -397,7 +444,7 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class IntType: ValueType {
+    class IntType: BasicValueType<Int> {
         init() {
             super.init("Int")
         }
@@ -407,7 +454,7 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class MacroType: ValueType {
+    class MacroType: BasicValueType<Macro> {
         init() {
             super.init("Macro")
         }
@@ -418,7 +465,7 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class PairType: ValueType {
+    class PairType: BasicValueType<(Value, Value)> {
         init() {
             super.init("Pair")
         }
@@ -429,7 +476,7 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class StringType: ValueType {
+    class StringType: BasicValueType<String> {
         init() {
             super.init("String")
         }
@@ -443,7 +490,7 @@ class StandardLibrary: Namespace {
     let functionType = FunctionType()
     let intType = IntType()
     let macroType = MacroType()
-    let metaType = ValueType("Meta")
+    let metaType = BasicValueType<any ValueType>("Meta")
     let pairType = PairType()
     let stringType = StringType()
 
@@ -470,7 +517,7 @@ class StandardLibrary: Namespace {
                     throw EmitError.unknownIdentifier(tid)
                 }
                 
-                return (n, t!.data as! ValueType)
+                return (n, t!.data as! any ValueType)
             }
             
             let body = args.removeFirst()
@@ -516,7 +563,7 @@ class StandardLibrary: Namespace {
         }
     }
 
-    func bindFunction(_ name: String, _ args: [(String, ValueType)], _ body: @escaping Function.Body) {
+    func bindFunction(_ name: String, _ args: [(String, any ValueType)], _ body: @escaping Function.Body) {
         self[name] = Value(functionType, Function(name, args, body))
     }
 
