@@ -1,5 +1,5 @@
 ## Introduction
-The goal of this tutorial is to provide the foundation for an interpreter in Swift that is simple enough to understand, yet substantial enough to continue building upon and playing around with; the final implementation clocks in att 850loc.<br/>
+The goal of this tutorial is to provide the foundation for an interpreter in Swift that is simple enough to understand, yet substantial enough to continue building upon and playing around with; the final implementation weighs in att 1kloc.<br/>
 <br/>
 A taste of interpreters, Swift, or both; depending on where you're coming from.<br/>
 <br/>

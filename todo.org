@@ -1,21 +1,14 @@
-* update part7
-** copy part6 and make changes
-* cache constant stack suffix in call/tailCall ops
-** benchmark
 * perform literal argument type checks at compile time
 ** emit ops for runtime checks
+* cache constant stack suffix in call/tailCall ops
+** benchmark
 
 swift run -c release
 
 function fib1(n:Int) if < n 2 n else + fib1 - n 1 fib1 - n 2 benchmark 100 fib1 20
 2.898292418 seconds
-
-0.42437844 seconds
-0.296323258 seconds callStack -> currentCall
+3.940976014 seconds arg type check
 
 function fib2(n:Int a:Int b:Int) if > n 1 return fib2 - n 1 b + a b else if = n 0 a else b benchmark 10000 fib2 70 0 1
-2.250787664 seconds
 0.840631962 seconds
-
-0.34325963 seconds
-0.231346059 seconds callStack -> currentCall
+1.174382059 seconds arg type check
