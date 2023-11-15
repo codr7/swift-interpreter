@@ -9,18 +9,17 @@ To try it out; simply download and install [Swift](https://www.swift.org/downloa
 We'll add a new macro that measures the time it takes to evaluate it's argument in a loop.
 
 ```
-1. function fib1(n) if < n 2 n else + fib1 - n 1 fib1 - n 2
-2. benchmark 10 fib1 20
-3.
-0.42437844 seconds
+1. benchmark 10 sleep milliseconds 100
+2. 
+1.001935008 seconds
 ```
 
 ## Optimizations
-We will reuse the recursive and tail recursive Fibonacci functions seen previously to evaluate the impact of our optimizations.
+We will use the recursive and tail recursive Fibonacci functions seen previously to evaluate the impact of our optimizations.
 
 ```
-function fib1(n) if < n 2 n else + fib1 - n 1 fib1 - n 2
-function fib2(n a b) if > n 1 return fib2 - n 1 b + a b else if = n 0 a else b
+function fib1(n:Int) if < n 2 n else + fib1 - n 1 fib1 - n 2
+function fib2(n:Int a:Int b:Int) if > n 1 return fib2 - n 1 b + a b else if = n 0 a else b
 ```
 
 ### Convert call stack to embedded linked list
@@ -74,7 +73,7 @@ stdMacro("function") {(_, vm, pos, ns, args) throws in
 }
 ```
 
-Converting it to an embedded linked list, where each frame contains an optional reference to its parent; gives a 30-40% boost.
+Converting it to an embedded linked list, where each frame contains an optional reference to its parent; gives Fibonacci a 30 boost.
 
 ```
 struct Function {
@@ -123,7 +122,7 @@ stdMacro("function") {(_, vm, pos, ns, args) throws in
 }
 ```
 
-## Implement tail calls
+### Implement tail calls
 A tail call is a call of a user defined function directly followed by a return, which allows reusing the current call frame rather than pushing a new one. We'll add a `return` macro that triggers tail calls to be emitted when expanded with a user defined function call as argument. This gives the tail recursive version of Fibonacci a 60% boost.
 
 ```
@@ -166,6 +165,92 @@ func eval(fromPc: PC) throws {
                 pc = target.startPc!
             }
 	...
+	}
+    }
+}
+```
+
+### Move type checks from runtime to compilation
+For simplcitys sake, function argument type checks were initially performed at runtime when calling the function.
+
+```
+struct Function: CustomStringConvertible {
+    ...
+    func call(_ vm: VM, at pos: Position) throws {
+        ...
+        for i in 0..<arguments.count {
+            let expected = arguments[i].1
+            let actual  = vm.stack[vm.stack.count - arguments.count + i].type
+
+            if !actual.equals(expected) {
+                throw EvalError.typeMismatch(pos, expected, actual)
+            }
+        }
+	...
+    }
+}
+```
+
+But in many cases we actually have enough information to perform the check at compile time.
+Where runtime checks are needed, they are now emitted as separate operations per argument.
+This gives us a 20% boost in Fibonacci.
+
+```
+class FunctionType: BasicValueType<Function> {
+    ...
+    override func identifierEmit(_ value: Value,
+                                 _ vm: VM,
+                                 at pos: Position,
+				 inNamespace ns: Namespace,
+				 withArguments args: inout [Form],
+				 options opts: Set<EmitOption>) throws {
+	let f = try cast(value, at: pos)
+
+	for a in f.arguments {
+	    if args.isEmpty {
+		throw EmitError.missingArgument(pos)
+	    }
+
+	    let f = args.removeFirst()
+	    let expected = a.1
+	    var actual: (any ValueType)?
+
+	    if f is Literal {
+		actual = (f as! Literal).value.type
+	    } else if f is Identifier {
+		let v = ns[(f as! Identifier).name]
+
+		if v != nil && v!.type.equals(std.argumentType) {
+		    actual = try std.argumentType.cast(v!, at: f.position).1
+		}
+	    }
+
+	    if actual != nil {
+		if !actual!.equals(expected) {
+		    throw EmitError.typeMismatch(f.position, expected, actual!)
+		}
+	    }
+
+	    try f.emit(vm, inNamespace: ns, withArguments: &args, options: [])
+	    if actual == nil { vm.emit(.checkType(f.position, expected)) }
+	}
+	...
+    }
+}
+
+class VM {
+    ...
+    func eval(fromPc: PC) throws {
+        ...
+        loop: while true {
+	    ...            
+            switch op {
+            case let .checkType(pos, expected):
+                let actual = stack.last!.type
+                if !actual.equals(expected) { throw EvalError.typeMismatch(pos, expected, actual) }
+                pc += 1
+	    }
+	    ...
 	}
     }
 }

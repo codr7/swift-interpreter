@@ -272,19 +272,6 @@ extension [Form] {
     }
 }
 
-enum Op {
-    case argument(Int)
-    case call(Function)
-    case goto(PC)
-    case makePair
-    case nop
-    case or(PC)
-    case popCall(Function)
-    case push(Value)
-    case stop
-    case trace
-}
-
 typealias Stack = [Value]
 
 class Task {
@@ -303,12 +290,25 @@ class Task {
 }
 
 class VM {    
+    enum Operation {
+        case argument(Int)
+        case call(Function)
+        case goto(PC)
+        case makePair
+        case nop
+        case or(PC)
+        case popCall(Function)
+        case push(Value)
+        case stop
+        case trace
+    }
+
     var callStack: [Function.Call] {
         get {currentTask!.callStack}
         set(v) {currentTask!.callStack = v} 
     }
     
-    var code: [Op] = []
+    var code: [Operation] = []
     var currentTask: Task? {tasks[0]}
     var emitPc: PC {code.count}
     var nextTaskId = 0
@@ -331,7 +331,7 @@ class VM {
     }
     
     @discardableResult
-    func emit(_ op: Op) -> PC {
+    func emit(_ op: Operation) -> PC {
         if trace { code.append(.trace) }
         let pc = code.count
         code.append(op)

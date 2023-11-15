@@ -195,15 +195,6 @@ extension [Form] {
 
 typealias PC = Int
 
-enum Op {
-    case call(Function)
-    case nop
-    case or(PC)
-    case push(Value)
-    case stop
-    case trace
-}
-
 typealias Stack = [Value]
 
 class Task {
@@ -220,7 +211,16 @@ class Task {
 }
 
 class VM {    
-    var code: [Op] = []
+    enum Operation {
+        case call(Function)
+        case nop
+        case or(PC)
+        case push(Value)
+        case stop
+        case trace
+    }
+
+    var code: [Operation] = []
     var currentTask: Task? {tasks[0]}
     var emitPc: PC {code.count}
     var nextTaskId = 0
@@ -239,7 +239,7 @@ class VM {
     }
     
     @discardableResult
-    func emit(_ op: Op) -> PC {
+    func emit(_ op: Operation) -> PC {
         if trace { code.append(.trace) }
         let pc = code.count
         code.append(op)

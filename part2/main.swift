@@ -41,13 +41,6 @@ struct Function: CustomStringConvertible {
     }
 }
 
-enum Op {
-    case call(Function)
-    case push(Value)
-    case stop
-    case trace
-}
-
 typealias PC = Int
 typealias Stack = [Value]
 
@@ -67,8 +60,15 @@ class Task {
 }
 
 class VM {
+    enum Operation {
+        case call(Function)
+        case push(Value)
+        case stop
+        case trace
+    }
+
     var trace = false
-    var code: [Op] = []
+    var code: [Operation] = []
     var nextTaskId = 0
     var tasks: [Task] = []
     var currentTask: Task? {tasks[0]}
@@ -82,7 +82,7 @@ class VM {
         startTask()
     }
     
-    func emit(_ op: Op) {
+    func emit(_ op: Operation) {
         if trace { code.append(.trace) }
         code.append(op)
     }

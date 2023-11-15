@@ -6,17 +6,30 @@ To try it out; simply download and install [Swift](https://www.swift.org/downloa
 ## Welcome to the machine
 The virtual machine we'll build is stack based, as opposed to register based.<br/>
 <br/>
-Each design has it's strengths and weaknesses; stacks need to be shuffled and registers allocated; but I find stacks more elegant and easy to reason about.
+Each design has it's strengths and weaknesses; stacks need to be shuffled and registers allocated; but I find stacks more elegant and easy to reason about.br/>
+<br/>
+We'll use an `enum` to represent VM operations.<br/>
+<br/>
+Any kind of code we want to run, regardless of syntax; will eventually be reduced to a sequence of operations.<br/>
+<br/>
+The reason there's a separate case for stopping is to avoid having to check in the eval loop,
+which needs to be as fast as possible.
 
 ```
 typealias PC = Int
 typealias Stack = [Value]
 
 class VM {
-    var code: [Op] = []
+    enum Op {
+        case call(Function)
+        case push(Value)
+        case stop
+    }
+    
+    var code: [Operation] = []
     var stack: Stack = []
 
-    func emit(_ op: Op) {
+    func emit(_ op: Operation) {
         code.append(op)
     }
     
@@ -46,22 +59,6 @@ class VM {
     func push(_ value: Value) {
         stack.append(value)
     }
-}
-```
-
-## Operations
-We'll use an `enum` to represent VM operations.<br/>
-<br/>
-Any kind of code we want to run, regardless of syntax; will eventually be reduced to a sequence of operations.<br/>
-<br/>
-The reason there's a separate case for stopping is to avoid having to check in the eval loop,
-which needs to be as fast as possible.
-
-```
-enum Op {
-    case call(Function)
-    case push(Value)
-    case stop
 }
 ```
 
@@ -140,7 +137,7 @@ let addFunction = Function("+") {(_, vm) throws in
 ```
 
 ## Showtime
-This prints 10, which is the final contents of the stack after adding 6 to 4.
+This prints 10, which is result of adding 6 to 4.
 
 ```
 let vm = VM()

@@ -41,20 +41,20 @@ struct Function: CustomStringConvertible {
     }
 }
 
-enum Op {
-    case call(Function)
-    case push(Value)
-    case stop
-}
-
 typealias PC = Int
 typealias Stack = [Value]
 
 class VM {
-    var code: [Op] = []
+    enum Operation {
+        case call(Function)
+        case push(Value)
+        case stop
+    }
+    
+    var code: [Operation] = []
     var stack: Stack = []
 
-    func emit(_ op: Op) {
+    func emit(_ op: Operation) {
         code.append(op)
     }
     

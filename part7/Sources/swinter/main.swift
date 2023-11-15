@@ -1,3 +1,5 @@
+import Foundation
+
 struct Value {
     let data: Any
     let type: any ValueType
@@ -78,6 +80,7 @@ class BasicValueType<V>: ValueType {
 enum EmitError: Error {
     case invalidSyntax(Position)
     case missingArgument(Position)
+    case typeMismatch(Position, any ValueType, any ValueType)
     case unknownIdentifier(Position, String)
 }
 
@@ -127,19 +130,6 @@ struct Function: CustomStringConvertible {
     }
 
     func call(_ vm: VM, at pos: Position) throws {
-        if vm.stack.count < arguments.count {
-            throw EvalError.missingValue(pos)
-        }
-
-        for i in 0..<arguments.count {
-            let expected = arguments[i].1
-            let actual  = vm.stack[vm.stack.count - arguments.count + i].type
-
-            if !actual.equals(expected) {
-                throw EvalError.typeMismatch(pos, expected, actual)
-            }
-        }
-        
         try body(self, vm, pos)
     }
 }
@@ -317,23 +307,6 @@ extension [Form] {
     }
 }
 
-enum Op {
-    case argument(Int)
-    case benchmark(Position)
-    case branch(Position, PC)
-    case call(Position, Function)
-    case goto(PC)
-    case makePair(Position)
-    case nop
-    case or(Position, PC)
-    case popCall(Function)
-    case push(Value)
-    case stop
-    case tailCall(Position, Function)
-    case task(PC)
-    case trace
-}
-
 typealias Stack = [Value]
 
 class Task {
@@ -352,7 +325,25 @@ class Task {
 }
 
 class VM {    
-    var code: [Op] = []
+    enum Operation {
+        case argument(Int)
+        case benchmark(Position)
+        case branch(Position, PC)
+        case call(Position, Function)
+        case checkType(Position, any ValueType)
+        case goto(PC)
+        case makePair(Position)
+        case nop
+        case or(Position, PC)
+        case popCall(Function)
+        case push(Value)
+        case stop
+        case tailCall(Position, Function)
+        case task(PC)
+        case trace
+    }
+
+    var code: [Operation] = []
 
     var currentCall: Function.Call? {
         get {currentTask!.currentCall}
@@ -381,7 +372,7 @@ class VM {
     }
     
     @discardableResult
-    func emit(_ op: Op) -> PC {
+    func emit(_ op: Operation) -> PC {
         if trace { code.append(.trace) }
         let pc = code.count
         code.append(op)
@@ -426,6 +417,10 @@ class VM {
             case let .call(pos, target):
                 pc += 1
                 try target.call(self, at: pos)
+            case let .checkType(pos, expected):
+                let actual = stack.last!.type
+                if !actual.equals(expected) { throw EvalError.typeMismatch(pos, expected, actual) }
+                pc += 1
             case let .goto(targetPc):
                 pc = targetPc
             case let .makePair(pos):
@@ -690,14 +685,14 @@ func readWhitespace(_ input: inout Input, _ output: inout [Form], _ pos: inout P
 }
 
 class StandardLibrary: Namespace {
-    class ArgumentType: BasicValueType<Int> {
+    class ArgumentType: BasicValueType<(Int, any ValueType)> {
         init() {
             super.init("Argument")
         }
         
         override func identifierEmit(_ value: Value, _ vm: VM,
                                      at pos: Position, inNamespace ns: Namespace, withArguments args: inout [Form], options: Set<EmitOption>) throws {
-            vm.emit(.argument(try cast(value, at: pos)))
+            vm.emit(.argument(try cast(value, at: pos).0))
         }
     }
 
@@ -724,12 +719,33 @@ class StandardLibrary: Namespace {
                                      at pos: Position, inNamespace ns: Namespace, withArguments args: inout [Form], options opts: Set<EmitOption>) throws {
             let f = try cast(value, at: pos)
             
-            for _ in 0..<f.arguments.count {
+            for a in f.arguments {
                 if args.isEmpty {
                     throw EmitError.missingArgument(pos)
                 }
+
+                let f = args.removeFirst()
+                let expected = a.1
+                var actual: (any ValueType)?
                 
-                try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [])
+                if f is Literal {
+                    actual = (f as! Literal).value.type
+                } else if f is Identifier {
+                    let v = ns[(f as! Identifier).name]
+
+                    if v != nil && v!.type.equals(std.argumentType) {
+                        actual = try std.argumentType.cast(v!, at: f.position).1
+                    }
+                }
+
+                if actual != nil {
+                    if !actual!.equals(expected) {
+                        throw EmitError.typeMismatch(f.position, expected, actual!)
+                    }
+                }
+                
+                try f.emit(vm, inNamespace: ns, withArguments: &args, options: [])
+                if actual == nil { vm.emit(.checkType(f.position, expected)) }
             }
 
             if opts.contains(.returning) && f.startPc != nil {
@@ -870,7 +886,8 @@ class StandardLibrary: Namespace {
             let fns = Namespace(ns)
             
             for i in 0..<fargs.count {
-                fns[fargs[i].0] = Value(self.argumentType, i)
+                let a = fargs[i]
+                fns[a.0] = Value(self.argumentType, (i, a.1))
             }
             
             try body.emit(vm, inNamespace: fns, withArguments: &args, options: [])
@@ -951,6 +968,17 @@ class StandardLibrary: Namespace {
             vm.push(Value(self.intType, l - r))
         }
         
+        bindFunction("milliseconds", [("value", intType)]) {(_, vm, pos) throws in
+            let v = try self.intType.cast(vm.pop(), at: pos)
+            vm.push(Value(self.timeType, Duration.milliseconds(v)))
+        }
+
+        bindFunction("sleep", [("duration", timeType)]) {(_, vm, pos) throws in
+            let d = try self.timeType.cast(vm.pop(), at: pos)
+            Thread.sleep(forTimeInterval: Double(d.components.seconds) +
+                           Double(d.components.attoseconds) * 1e-18)
+        }
+
         bindFunction("yield", []) {(_, vm, pos) throws in
             vm.tasks.append(vm.tasks.removeFirst())
         }
