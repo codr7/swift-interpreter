@@ -297,7 +297,7 @@ class VM {
         case makePair
         case nop
         case or(PC)
-        case popCall(Function)
+        case popCall
         case push(Value)
         case stop
         case trace
@@ -346,7 +346,7 @@ class VM {
  
             switch op {
             case let.argument(index):
-                vm.push(vm.stack[vm.callStack.last!.stackOffset+index])
+                push(stack[callStack.last!.stackOffset+index])
                 pc += 1
             case let .call(target):
                 pc += 1
@@ -354,21 +354,21 @@ class VM {
             case let .goto(targetPc):
                 pc = targetPc
             case .makePair:
-                let right = try safePop()
-                let left = try safePop()
+                let right = pop()
+                let left =  pop()
                 push(Value(std.pairType, (left, right)))
                 pc += 1
             case .nop:
                 pc += 1
             case let .or(endPc):
-                if try safePop().toBool {
+                if pop().toBool {
                     pc = endPc
                 } else {
                     pc += 1
                 }
-            case let .popCall(target):
-                let c = vm.callStack.removeLast()
-                vm.stack.removeSubrange(c.stackOffset..<c.stackOffset+target.arguments.count)
+            case .popCall:
+                let c = callStack.removeLast()
+                stack.removeSubrange(c.stackOffset..<c.stackOffset+c.target.arguments.count)
                 pc = c.returnPc
             case let .push(value):
                 push(value)
@@ -388,14 +388,6 @@ class VM {
 
     func push(_ value: Value) {
         currentTask!.stack.append(value)
-    }
-
-    func safePop() throws -> Value {
-        if stack.isEmpty {
-            throw EvalError.missingValue
-        }
-
-        return pop()
     }
 
     func startTask(pc: PC = 0) {
@@ -535,7 +527,7 @@ class StandardLibrary: Namespace {
             }
             
             try body.emit(vm, inNamespace: fns, withArguments: &args)
-            vm.emit(.popCall(f))
+            vm.emit(.popCall)
             vm.code[skip] = .goto(vm.emitPc)
         }
     

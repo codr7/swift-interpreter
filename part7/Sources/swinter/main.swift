@@ -223,6 +223,22 @@ class BasicForm {
     }
 }
 
+class ArrayForm: BasicForm, Form {
+    let items: [Form]
+    override var description: String { "[\(items.map({"\($0)"}).joined(separator: " "))]" }
+
+    init(_ position: Position, _ items: [Form]) {
+        self.items = items
+        super.init(position)
+    }
+
+    func emit(_ vm: VM,
+              inNamespace ns: Namespace, withArguments args: inout [Form], options: Set<EmitOption>) throws {
+        try items.emit(vm, inNamespace: ns)
+        vm.emit(.makeArray(items.count))
+    }
+}
+
 class Identifier: BasicForm, Form {    
     let name: String
     override var description: String { name }
@@ -292,7 +308,7 @@ class Pair: BasicForm, Form {
         } else {
             try left.emit(vm, inNamespace: ns, withArguments: &args, options: [])
             try right.emit(vm, inNamespace: ns, withArguments: &args, options: [])
-            vm.emit(.makePair(position))
+            vm.emit(.makePair)
         }
     }
 }
@@ -332,10 +348,11 @@ class VM {
         case call(Position, Function)
         case checkType(Position, any ValueType)
         case goto(PC)
-        case makePair(Position)
+        case makeArray(Int)
+        case makePair
         case nop
         case or(Position, PC)
-        case popCall(Function)
+        case popCall
         case push(Value)
         case stop
         case tailCall(Position, Function)
@@ -387,10 +404,10 @@ class VM {
             
             switch op {
             case let .argument(index):
-                vm.push(vm.stack[vm.currentCall!.stackOffset+index])
+                push(stack[currentCall!.stackOffset+index])
                 pc += 1
             case let .branch(pos, elsePc):
-                if try safePop(at: pos).toBool(at: pos) {
+                if try pop().toBool(at: pos) {
                     pc += 1
                 } else {
                     pc = elsePc
@@ -423,23 +440,28 @@ class VM {
                 pc += 1
             case let .goto(targetPc):
                 pc = targetPc
-            case let .makePair(pos):
-                let right = try safePop(at: pos)
-                let left = try safePop(at: pos)
+            case let .makeArray(count):
+                let items = stack.suffix(count)
+                stack.removeLast(count)
+                push(Value(std.arrayType, Array(items)))
+                pc += 1
+            case .makePair:
+                let right = pop()
+                let left = pop()
                 push(Value(std.pairType, (left, right)))
                 pc += 1
             case .nop:
                 pc += 1
             case let .or(pos, endPc):
-                if try safePop(at: pos).toBool(at: pos) {
+                if try pop().toBool(at: pos) {
                     pc = endPc
                 } else {
                     pc += 1
                 }
-            case let .popCall(target):
-                let c = vm.currentCall!
-                vm.currentCall = c.parentCall
-                vm.stack.removeSubrange(c.stackOffset..<c.stackOffset+target.arguments.count)
+            case .popCall:
+                let c = currentCall!
+                currentCall = c.parentCall
+                stack.removeSubrange(c.stackOffset..<c.stackOffset+c.target.arguments.count)
                 pc = c.returnPc
             case let .push(value):
                 push(value)
@@ -447,7 +469,7 @@ class VM {
             case .stop:
                 break loop
             case let .tailCall(pos, target):
-                let c = vm.currentCall
+                let c = currentCall
                 
                 if c == nil || c!.target.startPc == nil {
                     pc += 1
@@ -455,7 +477,7 @@ class VM {
                 } else {
                     c!.target = target
                     c!.position = pos
-                    c!.stackOffset = vm.stack.count - target.arguments.count
+                    c!.stackOffset = stack.count - target.arguments.count
                     pc = target.startPc!
                 }
             case let .task(endPc):
@@ -474,14 +496,6 @@ class VM {
 
     func push(_ value: Value) {
         currentTask!.stack.append(value)
-    }
-
-    func safePop(at pos: Position) throws -> Value {
-        if stack.isEmpty {
-            throw EvalError.missingValue(pos)
-        }
-
-        return pop()
     }
 
     func startTask(pc: PC = 0) {
@@ -521,7 +535,7 @@ struct Input {
 
 typealias Reader = (_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool
 
-let readers = [readWhitespace, readPair, readList, readString, readInt, readIdentifier]
+let readers = [readWhitespace, readPair, readArray, readList, readString, readInt, readIdentifier]
 
 func readForm(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
     for r in readers {
@@ -537,12 +551,35 @@ func readAll(_ reader: Reader, _ input: inout Input, _ output: [Form], _ pos: in
     return result
 }
 
+func readArray(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
+    let fpos = pos
+    var c = input.popChar()
+    
+    if c != "[" {
+        if c != nil { input.pushChar(c!) }
+        return false
+    }
+    
+    pos.column += 1
+    let items = try readAll(readForm, &input, [], &pos)
+    c = input.popChar()
+
+    if c != "]" {
+        if c != nil { input.pushChar(c!) }
+        throw ReadError.invalidSyntax(fpos)
+    }
+    
+    pos.column += 1
+    output.append(ArrayForm(fpos, items))
+    return true
+}
+
 func readIdentifier(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
     let fpos = pos
     var name = ""
     
     while let c = input.popChar() {
-        if c.isWhitespace || c == "(" || c == ")" || c == ":" {
+        if c.isWhitespace || c == "(" || c == ")" || c == "[" || c == "]" || c == ":" {
             input.pushChar(c)
             break
         }
@@ -696,6 +733,20 @@ class StandardLibrary: Namespace {
         }
     }
 
+    class ArrayType: BasicValueType<[Value]> {
+        init() {
+            super.init("Array")
+        }
+        
+        override func toBool(_ value: Value, at pos: Position) throws -> Bool {
+            return try cast(value, at: pos).count != 0
+        }
+
+        override func toString(_ value: Value, at pos: Position) throws -> String {
+            "[\(try cast(value, at: pos).map({try $0.toString(at: pos)}).joined(separator: " "))]"
+        }
+    }
+
     class BoolType: BasicValueType<Bool> {
         init() {
             super.init("Bool")
@@ -818,6 +869,7 @@ class StandardLibrary: Namespace {
     }
     
     let argumentType = ArgumentType()
+    let arrayType = ArrayType()
     let boolType = BoolType()
     let functionType = FunctionType()
     let intType = IntType()
@@ -830,6 +882,7 @@ class StandardLibrary: Namespace {
     init() {
         super.init()
     
+        self["Array"] = Value(metaType, arrayType)
         self["Bool"] = Value(metaType, boolType)
         self["Function"] = Value(metaType, functionType)
         self["Int"] = Value(metaType, intType)
@@ -855,8 +908,12 @@ class StandardLibrary: Namespace {
             ns[name] = value
         }
 
-        bindMacro("function", 3) {(_, vm, pos, ns, args) throws in
-            let id = try args.removeFirst().cast(Identifier.self).name
+        bindMacro("function", 2) {(_, vm, pos, ns, args) throws in
+            var id: String?
+            
+            if args.first! is Identifier {
+                id = try args.removeFirst().cast(Identifier.self).name
+            }
 
             let fargs = try args.removeFirst().cast(List.self).items.map {(it) in
                 let p = try it.cast(Pair.self)
@@ -875,14 +932,17 @@ class StandardLibrary: Namespace {
             let skip = vm.emit(.nop)
             let startPc = vm.emitPc
             
-            let f = Function(id, fargs, startPc: startPc) {(f, vm, pos) throws in
+            let f = Function(id ?? "lambda", fargs) {(f, vm, pos) throws in
                 vm.currentCall = Function.Call(vm.currentCall, f, at: pos,
                                                stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc)
 
                 vm.pc = startPc
             }
-        
-            ns[id] = Value(self.functionType, f)
+
+            if id != nil {
+                ns[id!] = Value(self.functionType, f)
+            }
+            
             let fns = Namespace(ns)
             
             for i in 0..<fargs.count {
@@ -891,10 +951,14 @@ class StandardLibrary: Namespace {
             }
             
             try body.emit(vm, inNamespace: fns, withArguments: &args, options: [])
-            vm.emit(.popCall(f))
+            vm.emit(.popCall)
             vm.code[skip] = .goto(vm.emitPc)
-        }
 
+            if id == nil {
+                vm.emit(.push(Value(self.functionType, f)))
+            }
+        }
+        
         bindMacro("if", 2) {(_, vm, pos, ns, args) throws in
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [])
             let ifPc = vm.emit(.nop)
@@ -925,6 +989,7 @@ class StandardLibrary: Namespace {
 
         bindMacro("return", 1) {(_, vm, pos, ns, args) throws in
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [.returning])
+            vm.emit(.popCall)
         }
         
         bindMacro("task", 1) {(_, vm, pos, ns, args) throws in
@@ -966,6 +1031,23 @@ class StandardLibrary: Namespace {
             let r = try self.intType.cast(vm.pop(), at: pos)
             let l = try self.intType.cast(vm.pop(), at: pos)
             vm.push(Value(self.intType, l - r))
+        }
+
+        bindFunction("call", [("target", functionType), ("arguments", arrayType)]) {(_, vm, pos) throws in
+            let args = try self.arrayType.cast(vm.pop(), at: pos)
+            let f = try self.functionType.cast(vm.pop(), at: pos)
+
+            for i in 0..<f.arguments.count {
+                let expected = f.arguments[i].1
+                let actual  = args[i].type
+                
+                if !actual.equals(expected) {
+                    throw EvalError.typeMismatch(pos, expected, actual)
+                }
+            }
+
+            vm.stack.append(contentsOf: args)
+            try f.call(vm, at: pos)
         }
         
         bindFunction("milliseconds", [("value", intType)]) {(_, vm, pos) throws in
