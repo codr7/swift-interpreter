@@ -1,14 +1,10 @@
-* upgrade swift
-** benchmark
 * add dot calls to all reader parts
 * move stack to eval parameter in all parts
 * cache constant stack suffix in call ops
 ** benchmark
 * add queue type
 ** add task producer/consumer example
-* split value cast into cast/safeCast in part7
-** benchmark
-** backport
+* remove at: pos from toString/toBool in ..part6
 
 swift run -c release
 
