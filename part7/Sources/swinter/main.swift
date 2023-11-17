@@ -118,13 +118,19 @@ struct Function: CustomStringConvertible {
     let arguments: [(String, any ValueType)]
     let body: Body
     let name: String
+    let resultType: (any ValueType)?
     let startPc: PC?
 
     var description: String { name }
     
-    init(_ name: String, _ arguments: [(String, any ValueType)], startPc: PC? = nil, _ body: @escaping Body) {
+    init(_ name: String,
+         _ arguments: [(String, any ValueType)],
+         _ resultType: (any ValueType)?,
+         startPc: PC? = nil,
+         _ body: @escaping Body) {
         self.name = name
         self.arguments = arguments
+        self.resultType = resultType
         self.startPc = startPc
         self.body = body
     }
@@ -784,8 +790,12 @@ class StandardLibrary: Namespace {
                 } else if f is Identifier {
                     let v = ns[(f as! Identifier).name]
 
-                    if v != nil && v!.type.equals(std.argumentType) {
-                        actual = try std.argumentType.cast(v!, at: f.position).1
+                    if v != nil {
+                        if v!.type.equals(std.argumentType) {
+                            actual = try std.argumentType.cast(v!, at: f.position).1
+                        } else if v!.type.equals(std.functionType) {
+                            actual = try std.functionType.cast(v!, at: f.position).resultType
+                        }
                     }
                 }
 
@@ -915,7 +925,18 @@ class StandardLibrary: Namespace {
                 id = try args.removeFirst().cast(Identifier.self).name
             }
 
-            let fargs = try args.removeFirst().cast(List.self).items.map {(it) in
+            var argsForm = args.removeFirst()
+            var resultType: (any ValueType)?
+            
+            if argsForm is Pair {
+                let p = argsForm as! Pair
+                let tid = try p.right.cast(Identifier.self).name
+                let t = ns[tid]
+                resultType = try self.metaType.cast(t!, at: pos)
+                argsForm = p.left
+            }
+            
+            let fargs = try argsForm.cast(List.self).items.map {(it) in
                 let p = try it.cast(Pair.self)
                 let n = try p.left.cast(Identifier.self).name
                 let tid = try p.right.cast(Identifier.self).name
@@ -932,10 +953,11 @@ class StandardLibrary: Namespace {
             let skip = vm.emit(.nop)
             let startPc = vm.emitPc
             
-            let f = Function(id ?? "lambda", fargs) {(f, vm, pos) throws in
+            let f = Function(id ?? "lambda", fargs, resultType, startPc: startPc) {
+                (f, vm, pos) throws in
                 vm.currentCall = Function.Call(vm.currentCall, f, at: pos,
                                                stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc)
-
+                
                 vm.pc = startPc
             }
 
@@ -1003,37 +1025,37 @@ class StandardLibrary: Namespace {
             vm.trace = !vm.trace
         }
 
-        bindFunction("=", [("left", intType), ("right", intType)]) {(_, vm, pos) throws in
+        bindFunction("=", [("left", intType), ("right", intType)], boolType) {(_, vm, pos) throws in
             let r = try self.intType.cast(vm.pop(), at: pos)
             let l = try self.intType.cast(vm.pop(), at: pos)
             vm.push(Value(self.boolType, l == r))
         }
 
-        bindFunction("<", [("left", intType), ("right", intType)]) {(_, vm, pos) throws in
+        bindFunction("<", [("left", intType), ("right", intType)], boolType) {(_, vm, pos) throws in
             let r = try self.intType.cast(vm.pop(), at: pos)
             let l = try self.intType.cast(vm.pop(), at: pos)
             vm.push(Value(self.boolType, l < r))
         }
         
-        bindFunction(">", [("left", intType), ("right", intType)]) {(_, vm, pos) throws in
+        bindFunction(">", [("left", intType), ("right", intType)], boolType) {(_, vm, pos) throws in
             let r = try self.intType.cast(vm.pop(), at: pos)
             let l = try self.intType.cast(vm.pop(), at: pos)
             vm.push(Value(self.boolType, l > r))
         }
         
-        bindFunction("+", [("left", intType), ("right", intType)]) {(_, vm, pos) throws in
+        bindFunction("+", [("left", intType), ("right", intType)], intType) {(_, vm, pos) throws in
             let r = try self.intType.cast(vm.pop(), at: pos)
             let l = try self.intType.cast(vm.pop(), at: pos)
             vm.push(Value(self.intType, l + r))
         }
 
-        bindFunction("-", [("left", intType), ("right", intType)]) {(_, vm, pos) throws in
+        bindFunction("-", [("left", intType), ("right", intType)], intType) {(_, vm, pos) throws in
             let r = try self.intType.cast(vm.pop(), at: pos)
             let l = try self.intType.cast(vm.pop(), at: pos)
             vm.push(Value(self.intType, l - r))
         }
 
-        bindFunction("call", [("target", functionType), ("arguments", arrayType)]) {(_, vm, pos) throws in
+        bindFunction("call", [("target", functionType), ("arguments", arrayType)], nil) {(_, vm, pos) throws in
             let args = try self.arrayType.cast(vm.pop(), at: pos)
             let f = try self.functionType.cast(vm.pop(), at: pos)
 
@@ -1050,24 +1072,24 @@ class StandardLibrary: Namespace {
             try f.call(vm, at: pos)
         }
         
-        bindFunction("milliseconds", [("value", intType)]) {(_, vm, pos) throws in
+        bindFunction("milliseconds", [("value", intType)], timeType) {(_, vm, pos) throws in
             let v = try self.intType.cast(vm.pop(), at: pos)
             vm.push(Value(self.timeType, Duration.milliseconds(v)))
         }
 
-        bindFunction("sleep", [("duration", timeType)]) {(_, vm, pos) throws in
+        bindFunction("sleep", [("duration", timeType)], nil) {(_, vm, pos) throws in
             let d = try self.timeType.cast(vm.pop(), at: pos)
             Thread.sleep(forTimeInterval: Double(d.components.seconds) +
                            Double(d.components.attoseconds) * 1e-18)
         }
 
-        bindFunction("yield", []) {(_, vm, pos) throws in
+        bindFunction("yield", [], nil) {(_, vm, pos) throws in
             vm.tasks.append(vm.tasks.removeFirst())
         }
     }
 
-    func bindFunction(_ name: String, _ args: [(String, any ValueType)], _ body: @escaping Function.Body) {
-        self[name] = Value(functionType, Function(name, args, body))
+    func bindFunction(_ name: String, _ args: [(String, any ValueType)], _ resultType: (any ValueType)?,_ body: @escaping Function.Body) {
+        self[name] = Value(functionType, Function(name, args, resultType, body))
     }
 
     func bindMacro(_ name: String, _ arity: Int, _ body: @escaping Macro.Body) {
