@@ -117,7 +117,7 @@ struct Function: CustomStringConvertible {
         }
     }
 
-    typealias Body = (Function, VM, Position) throws -> Void
+    typealias Body = (Function, VM, inout Stack, Position) throws -> Void
     
     let arguments: [(String, any ValueType)]
     let body: Body
@@ -139,8 +139,8 @@ struct Function: CustomStringConvertible {
         self.body = body
     }
 
-    func call(_ vm: VM, at pos: Position) throws {
-        try body(self, vm, pos)
+    func call(_ vm: VM, _ stack: inout Stack, at pos: Position) throws {
+        try body(self, vm, &stack, pos)
     }
 }
 
@@ -335,6 +335,16 @@ extension [Form] {
 
 typealias Stack = [Value]
 
+extension Stack {
+    mutating func pop() -> Value {
+        removeLast()
+    }
+
+    mutating func push(_ value: Value) {
+        append(value)
+    }
+}
+
 class Task {
     typealias Id = Int
 
@@ -386,11 +396,6 @@ class VM {
         set(pc) {currentTask!.pc = pc}
     }
 
-    var stack: Stack {
-        get {currentTask!.stack}
-        set(v) {currentTask!.stack = v}
-    }
-    
     var tasks: [Task] = []
     var trace = false
     
@@ -406,7 +411,7 @@ class VM {
         return pc
     }
     
-    func eval(fromPc: PC) throws {
+    func eval(fromPc: PC, stack: inout Stack) throws {
         pc = fromPc
         
         loop: while true {
@@ -414,10 +419,10 @@ class VM {
             
             switch op {
             case let .argument(index):
-                push(stack[currentCall!.stackOffset+index])
+                stack.push(stack[currentCall!.stackOffset+index])
                 pc += 1
             case let .branch(elsePc):
-                if pop().toBool {
+                if stack.pop().toBool {
                     pc += 1
                 } else {
                     pc = elsePc
@@ -427,23 +432,23 @@ class VM {
                     throw EvalError.missingValue(pos)
                 }
 
-                let n = pop()
+                let n = stack.pop()
 
                 let t = try ContinuousClock().measure {
                     pc += 1
                     let startPc = pc
                     let stackLength = stack.count
                     
-                    for _ in 0..<(n.data as! Int) {
-                        try eval(fromPc: startPc)
+                    for _ in 0..<(try std.intType.safeCast(n, at: pos)) {
+                        try eval(fromPc: startPc, stack: &stack)
                         stack.removeLast(stack.count - stackLength)
                     }
                 }
 
-                push(Value(std.timeType, t))
+                stack.push(Value(std.timeType, t))
             case let .call(pos, target):
                 pc += 1
-                try target.call(self, at: pos)
+                try target.call(self, &stack, at: pos)
             case let .checkType(pos, expected):
                 let actual = stack.last!.type
                 if !actual.equals(expected) { throw EvalError.typeMismatch(pos, expected, actual) }
@@ -453,17 +458,17 @@ class VM {
             case let .makeArray(count):
                 let items = stack.suffix(count)
                 stack.removeLast(count)
-                push(Value(std.arrayType, Array(items)))
+                stack.push(Value(std.arrayType, Array(items)))
                 pc += 1
             case .makePair:
-                let right = pop()
-                let left = pop()
-                push(Value(std.pairType, (left, right)))
+                let right = stack.pop()
+                let left = stack.pop()
+                stack.push(Value(std.pairType, (left, right)))
                 pc += 1
             case .nop:
                 pc += 1
             case let .or(endPc):
-                if pop().toBool {
+                if stack.pop().toBool {
                     pc = endPc
                 } else {
                     pc += 1
@@ -474,7 +479,7 @@ class VM {
                 stack.removeSubrange(c.stackOffset..<c.stackOffset+c.target.arguments.count)
                 pc = c.returnPc
             case let .push(value):
-                push(value)
+                stack.push(value)
                 pc += 1
             case .stop:
                 break loop
@@ -483,7 +488,7 @@ class VM {
                 
                 if c == nil || c!.target.startPc == nil {
                     pc += 1
-                    try target.call(self, at: pos)
+                    try target.call(self, &stack, at: pos)
                 } else {
                     c!.target = target
                     c!.position = pos
@@ -498,14 +503,6 @@ class VM {
                 print("\(pc) \(code[pc])")
             }
         }
-    }
-
-    func pop() -> Value {
-        currentTask!.stack.removeLast()
-    }
-
-    func push(_ value: Value) {
-        currentTask!.stack.append(value)
     }
 
     func startTask(pc: PC = 0) {
@@ -958,9 +955,9 @@ class StandardLibrary: Namespace {
             let startPc = vm.emitPc
             
             let f = Function(id ?? "lambda", fargs, resultType, startPc: startPc) {
-                (f, vm, pos) throws in
+                (f, vm, stack, pos) throws in
                 vm.currentCall = Function.Call(vm.currentCall, f, at: pos,
-                                               stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc)
+                                               stackOffset: stack.count-fargs.count, returnPc: vm.pc)
                 
                 vm.pc = startPc
             }
@@ -1029,39 +1026,40 @@ class StandardLibrary: Namespace {
             vm.trace = !vm.trace
         }
 
-        bindFunction("=", [("left", intType), ("right", intType)], boolType) {(_, vm, pos) throws in
-            let r = self.intType.cast(vm.pop())
-            let l = self.intType.cast(vm.pop())
-            vm.push(Value(self.boolType, l == r))
+        bindFunction("=", [("left", intType), ("right", intType)], boolType) {(_, vm, stack, pos) throws in
+            let r = self.intType.cast(stack.pop())
+            let l = self.intType.cast(stack.pop())
+            stack.push(Value(self.boolType, l == r))
         }
 
-        bindFunction("<", [("left", intType), ("right", intType)], boolType) {(_, vm, pos) throws in
-            let r = self.intType.cast(vm.pop())
-            let l = self.intType.cast(vm.pop())
-            vm.push(Value(self.boolType, l < r))
+        bindFunction("<", [("left", intType), ("right", intType)], boolType) {(_, vm, stack, pos) throws in
+            let r = self.intType.cast(stack.pop())
+            let l = self.intType.cast(stack.pop())
+            stack.push(Value(self.boolType, l < r))
         }
         
-        bindFunction(">", [("left", intType), ("right", intType)], boolType) {(_, vm, pos) throws in
-            let r = self.intType.cast(vm.pop())
-            let l = self.intType.cast(vm.pop())
-            vm.push(Value(self.boolType, l > r))
+        bindFunction(">", [("left", intType), ("right", intType)], boolType) {(_, vm, stack, pos) throws in
+            let r = self.intType.cast(stack.pop())
+            let l = self.intType.cast(stack.pop())
+            stack.push(Value(self.boolType, l > r))
         }
         
-        bindFunction("+", [("left", intType), ("right", intType)], intType) {(_, vm, pos) throws in
-            let r = self.intType.cast(vm.pop())
-            let l = self.intType.cast(vm.pop())
-            vm.push(Value(self.intType, l + r))
+        bindFunction("+", [("left", intType), ("right", intType)], intType) {(_, vm, stack, pos) throws in
+            let r = self.intType.cast(stack.pop())
+            let l = self.intType.cast(stack.pop())
+            stack.push(Value(self.intType, l + r))
         }
 
-        bindFunction("-", [("left", intType), ("right", intType)], intType) {(_, vm, pos) throws in
-            let r = self.intType.cast(vm.pop())
-            let l = self.intType.cast(vm.pop())
-            vm.push(Value(self.intType, l - r))
+        bindFunction("-", [("left", intType), ("right", intType)], intType) {(_, vm, stack, pos) throws in
+            let r = self.intType.cast(stack.pop())
+            let l = self.intType.cast(stack.pop())
+            stack.push(Value(self.intType, l - r))
         }
 
-        bindFunction("call", [("target", functionType), ("arguments", arrayType)], nil) {(_, vm, pos) throws in
-            let args = self.arrayType.cast(vm.pop())
-            let f = self.functionType.cast(vm.pop())
+        bindFunction("call", [("target", functionType), ("arguments", arrayType)], nil) {
+            (_, vm, stack, pos) throws in
+            let args = self.arrayType.cast(stack.pop())
+            let f = self.functionType.cast(stack.pop())
 
             for i in 0..<f.arguments.count {
                 let expected = f.arguments[i].1
@@ -1072,22 +1070,22 @@ class StandardLibrary: Namespace {
                 }
             }
 
-            vm.stack.append(contentsOf: args)
-            try f.call(vm, at: pos)
+            stack.append(contentsOf: args)
+            try f.call(vm, &stack, at: pos)
         }
         
-        bindFunction("milliseconds", [("value", intType)], timeType) {(_, vm, pos) throws in
-            let v = self.intType.cast(vm.pop())
-            vm.push(Value(self.timeType, Duration.milliseconds(v)))
+        bindFunction("milliseconds", [("value", intType)], timeType) {(_, vm, stack, pos) throws in
+            let v = self.intType.cast(stack.pop())
+            stack.push(Value(self.timeType, Duration.milliseconds(v)))
         }
 
-        bindFunction("sleep", [("duration", timeType)], nil) {(_, vm, pos) throws in
-            let d = self.timeType.cast(vm.pop())
+        bindFunction("sleep", [("duration", timeType)], nil) {(_, vm, stack, pos) throws in
+            let d = self.timeType.cast(stack.pop())
             Thread.sleep(forTimeInterval: Double(d.components.seconds) +
                            Double(d.components.attoseconds) * 1e-18)
         }
 
-        bindFunction("yield", [], nil) {(_, vm, pos) throws in
+        bindFunction("yield", [], nil) {(_, vm, stack, pos) throws in
             vm.tasks.append(vm.tasks.removeFirst())
         }
     }
@@ -1106,6 +1104,7 @@ let std = StandardLibrary()
 func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
     var input = Input()
     var prompt = 1
+    var stack: Stack = []
     
     while true {
         print("\(prompt). ", terminator: "")
@@ -1118,8 +1117,8 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
                 let pc = vm.emitPc
                 try fs.emit(vm, inNamespace: ns)
                 vm.emit(.stop)
-                try vm.eval(fromPc: pc)
-                print("\(vm.stack.isEmpty ? "_" : "\(vm.pop().toString)")\n")
+                try vm.eval(fromPc: pc, stack: &stack)
+                print("\(stack.isEmpty ? "_" : "\(stack.pop().toString)")\n")
                 input.reset()
             } catch {
                 print("\(error)\n")
