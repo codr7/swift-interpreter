@@ -1,3 +1,5 @@
+* use local var for pc
+** update task on yield
 * add dot calls to all reader parts
 * cache constant stack suffix in call ops
 ** benchmark

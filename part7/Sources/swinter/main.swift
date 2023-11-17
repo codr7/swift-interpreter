@@ -1086,7 +1086,9 @@ class StandardLibrary: Namespace {
         }
 
         bindFunction("yield", [], nil) {(_, vm, stack, pos) throws in
+            vm.currentTask!.stack = stack
             vm.tasks.append(vm.tasks.removeFirst())
+            stack = vm.currentTask!.stack
         }
     }
 
