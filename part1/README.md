@@ -12,7 +12,7 @@ We'll use an `enum` to represent VM operations.<br/>
 <br/>
 Any kind of code we want to run, regardless of syntax; will eventually be reduced to a sequence of operations.<br/>
 <br/>
-The reason there's a separate case for stopping is to avoid having to check in the eval loop,
+The reason there's a separate case for stopping is to avoid having to check in the evaluation loop,
 which needs to be as fast as possible.
 
 ```
@@ -33,7 +33,7 @@ class VM {
         code.append(op)
     }
     
-    func eval(fromPc: PC) throws {
+    func evaluate(fromPc: PC) throws {
         var pc = fromPc
         
         loop: while true {
@@ -145,6 +145,6 @@ vm.emit(.push(Value(intType, 6)))
 vm.emit(.push(Value(intType, 4)))
 vm.emit(.call(addFunction))
 vm.emit(.stop)
-try vm.eval(fromPc: 0)
+try vm.evaluate(fromPc: 0)
 print(vm.pop())
 ```

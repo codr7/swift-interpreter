@@ -66,7 +66,7 @@ class BasicValueType<V>: ValueType {
         let v = value.data as? V
 
         if v == nil {
-            throw EvalError.typeMismatch(pos, self, value.type)
+            throw EvaluateError.typeMismatch(pos, self, value.type)
         }
 
         return v!
@@ -88,7 +88,7 @@ enum EmitError: Error {
     case unknownIdentifier(Position, String)
 }
 
-enum EvalError: Error {
+enum EvaluateError: Error {
     case arityMismatch(Position, Int, Int)
     case missingValue(Position)
     case typeMismatch(Position, any ValueType, any ValueType)
@@ -429,7 +429,7 @@ class VM {
         return pc
     }
     
-    func eval(fromPc: PC, stack: inout Stack) throws {
+    func evaluate(fromPc: PC, stack: inout Stack) throws {
         var pc = fromPc
         
         loop: while true {
@@ -447,7 +447,7 @@ class VM {
                 }
             case let .benchmark(pos, endPc):
                 if stack.isEmpty {
-                    throw EvalError.missingValue(pos)
+                    throw EvaluateError.missingValue(pos)
                 }
 
                 let n = stack.pop()
@@ -458,7 +458,7 @@ class VM {
                     let stackLength = stack.count
                     
                     for _ in 0..<(try std.intType.safeCast(n, at: pos)) {
-                        try eval(fromPc: startPc, stack: &stack)
+                        try evaluate(fromPc: startPc, stack: &stack)
                         stack.removeLast(stack.count - stackLength)
                     }
                 }
@@ -470,7 +470,7 @@ class VM {
                 try target.call(self, &pc, &stack, at: pos)
             case let .checkType(pos, expected):
                 let actual = stack.last!.type
-                if !actual.equals(expected) { throw EvalError.typeMismatch(pos, expected, actual) }
+                if !actual.equals(expected) { throw EvaluateError.typeMismatch(pos, expected, actual) }
                 pc += 1
             case let .goto(targetPc):
                 pc = targetPc
@@ -1130,7 +1130,7 @@ class StandardLibrary: Namespace {
             let f = self.functionType.cast(stack.pop())
 
             if args.count != f.arguments.count {
-                throw EvalError.arityMismatch(pos, f.arguments.count, args.count)
+                throw EvaluateError.arityMismatch(pos, f.arguments.count, args.count)
             }
 
 
@@ -1139,7 +1139,7 @@ class StandardLibrary: Namespace {
                 let actual  = args[i].type
                 
                 if !actual.equals(expected) {
-                    throw EvalError.typeMismatch(pos, expected, actual)
+                    throw EvaluateError.typeMismatch(pos, expected, actual)
                 }
             }
 
@@ -1196,7 +1196,7 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
                 let pc = vm.emitPc
                 try fs.emit(vm, inNamespace: ns)
                 vm.emit(.stop)
-                try vm.eval(fromPc: pc, stack: &stack)
+                try vm.evaluate(fromPc: pc, stack: &stack)
                 print("\(stack.isEmpty ? "_" : "\(stack.pop())")\n")
                 input.reset()
             } catch {

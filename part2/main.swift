@@ -87,7 +87,7 @@ class VM {
         code.append(op)
     }
     
-    func eval(fromPc: PC) throws {
+    func evaluate(fromPc: PC) throws {
         pc = fromPc
         
         loop: while true {
@@ -158,7 +158,7 @@ vm.emit(.call(pongFunction))
 vm.emit(.call(yieldFunction))
 vm.emit(.stop)
 vm.startTask()
-try vm.eval(fromPc: 0)
+try vm.evaluate(fromPc: 0)
 
 /*
  Output:

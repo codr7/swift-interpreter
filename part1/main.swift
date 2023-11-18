@@ -58,7 +58,7 @@ class VM {
         code.append(op)
     }
     
-    func eval(fromPc: PC) throws {
+    func evaluate(fromPc: PC) throws {
         var pc = fromPc
         
         loop: while true {
@@ -99,5 +99,5 @@ vm.emit(.push(Value(intType, 6)))
 vm.emit(.push(Value(intType, 4)))
 vm.emit(.call(addFunction))
 vm.emit(.stop)
-try vm.eval(fromPc: 0)
+try vm.evaluate(fromPc: 0)
 print(vm.pop())

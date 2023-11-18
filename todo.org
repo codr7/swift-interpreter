@@ -1,3 +1,8 @@
+* add eval support to constant
+** emit operations if not literal
+** emit stop
+** eval with clean stack
+** pop & assign value
 * cache constant stack suffix in call ops
 ** benchmark
 * add queue type

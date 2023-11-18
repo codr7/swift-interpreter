@@ -45,7 +45,7 @@ enum EmitError: Error {
     case unknownIdentifier(String)
 }
 
-enum EvalError: Error {
+enum EvaluateError: Error {
     case missingValue
     case typeMismatch(ValueType, ValueType)
 }
@@ -67,7 +67,7 @@ struct Function: CustomStringConvertible {
 
     func call(_ vm: VM) throws {
         if vm.stack.count < arguments.count {
-            throw EvalError.missingValue
+            throw EvaluateError.missingValue
         }
 
         for i in 0..<arguments.count {
@@ -75,7 +75,7 @@ struct Function: CustomStringConvertible {
             let actual  = vm.stack[vm.stack.count - arguments.count + i].type
 
             if actual !== expected {
-                throw EvalError.typeMismatch(expected, actual)
+                throw EvaluateError.typeMismatch(expected, actual)
             }
         }
         
@@ -86,7 +86,7 @@ struct Function: CustomStringConvertible {
 /*
  Macros are named constructs that emit operations on use.
  
- Since they are free to evaluate their arguments and manipulate their environment any way they choose,
+ Since they are free to evaluateuate their arguments and manipulate their environment any way they choose,
  they may be used to add new features to the language, control structures etc.
  */
 
@@ -246,7 +246,7 @@ class VM {
         return pc
     }
     
-    func eval(fromPc: PC) throws {
+    func evaluate(fromPc: PC) throws {
         pc = fromPc
         
         loop: while true {
@@ -267,7 +267,7 @@ class VM {
                         pc += 1
                     }
                 } else {
-                    throw EvalError.missingValue
+                    throw EvaluateError.missingValue
                 }
             case let .push(value):
                 push(value)
@@ -379,7 +379,7 @@ let vm = VM()
 let forms: [Form] = [Identifier("or"), Literal(Value(intType, 1)), Literal(Value(intType, 3))]
 try forms.emit(vm, inNamespace: stdLib)
 vm.emit(.stop)
-try vm.eval(fromPc: 0)
+try vm.evaluate(fromPc: 0)
 
 /*
  This prints 1, since `or` short-circuits.

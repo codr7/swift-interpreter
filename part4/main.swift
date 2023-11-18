@@ -43,7 +43,7 @@ class BasicValueType<V>: ValueType {
         let v = value as? V
 
         if v == nil {
-            throw EvalError.typeMismatch(self, value.type)
+            throw EvaluateError.typeMismatch(self, value.type)
         }
 
         return v!
@@ -76,7 +76,7 @@ enum EmitError: Error {
     case unknownIdentifier(String)
 }
 
-enum EvalError: Error {
+enum EvaluateError: Error {
     case missingValue
     case typeMismatch(any ValueType, any ValueType)
 }
@@ -112,7 +112,7 @@ struct Function: CustomStringConvertible {
 
     func call(_ vm: VM) throws {
         if vm.stack.count < arguments.count {
-            throw EvalError.missingValue
+            throw EvaluateError.missingValue
         }
 
         for i in 0..<arguments.count {
@@ -120,7 +120,7 @@ struct Function: CustomStringConvertible {
             let actual  = vm.stack[vm.stack.count - arguments.count + i].type
 
             if !actual.equals(expected) {
-                throw EvalError.typeMismatch(expected, actual)
+                throw EvaluateError.typeMismatch(expected, actual)
             }
         }
         
@@ -338,7 +338,7 @@ class VM {
         return pc
     }
     
-    func eval(fromPc: PC) throws {
+    func evaluate(fromPc: PC) throws {
         pc = fromPc
         
         loop: while true {
@@ -584,7 +584,7 @@ try callForms.emit(vm, inNamespace: std)
 
 vm.emit(.push(Value(std.stringType, "Returned")))
 vm.emit(.stop)
-try vm.eval(fromPc: 0)
+try vm.evaluate(fromPc: 0)
 
 /*
  This prints [42, "Returned"].
