@@ -532,6 +532,7 @@ struct Input {
 typealias Reader = (_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool
 
 let readers = [readWhitespace,
+               readDot,
                readReference,
                readPair,
                readList,
@@ -577,12 +578,32 @@ func readArray(_ input: inout Input, _ output: inout [Form], _ pos: inout Positi
     return true
 }
 
+func readDot(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {    
+    let fpos = pos
+    let c = input.popChar()
+    
+    if c != "." {
+        if c != nil { input.pushChar(c!) }
+        return false
+    }
+    
+    pos.column += 1
+    let argument = output.removeLast()
+
+    if !(try readIdentifier(&input, &output, &pos)) {
+        throw ReadError.invalidSyntax(fpos)
+    }
+
+    output.append(argument)
+    return true
+}
+
 func readIdentifier(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
     let fpos = pos
     var name = ""
     
     while let c = input.popChar() {
-        if c.isWhitespace || c == "(" || c == ")" || c == "[" || c == "]" || c == ":" {
+        if c.isWhitespace || c == "(" || c == ")" || c == "[" || c == "]" || c == ":" || c == "&" || c == "." {
             input.pushChar(c)
             break
         }
