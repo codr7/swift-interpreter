@@ -1,6 +1,7 @@
-* use local var for pc
-** update task on yield
-* add dot calls to all reader parts
+* cache currentCall in vm
+** switch on yield
+* add dot calls to part 5-7
+* add function ref support to part5-7
 * cache constant stack suffix in call ops
 ** benchmark
 * add queue type
@@ -16,6 +17,7 @@ function fib1(n:Int):Int if < n 2 n else + fib1 - n 1 fib1 - n 2 benchmark 100 f
 3.15372856
 3.083033574
 1.922285964 stack arg
+1.555371778 local pc
 
 function fib2(n:Int a:Int b:Int):Int if > n 1 return fib2 - n 1 b + a b else if = n 0 a else b benchmark 10000 fib2 70 0 1
 0.840631962 
@@ -24,3 +26,4 @@ function fib2(n:Int a:Int b:Int):Int if > n 1 return fib2 - n 1 b + a b else if 
 0.912444318
 0.899550548
 0.679791056 stack arg
+0.542982574 local pc
