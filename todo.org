@@ -1,9 +1,8 @@
-* remove at: pos from toString/toBool in ..part6
-* document part 2
 * cache constant stack suffix in call ops
 ** benchmark
 * add queue type
 ** add task producer/consumer example
+* document part 2
 
 swift run -c release
 

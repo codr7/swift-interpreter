@@ -1,11 +1,11 @@
 import Foundation
 
-struct Value {
+struct Value: CustomStringConvertible {
     let data: Any
     let type: any ValueType
 
+    var description: String { type.toString(self) }
     var toBool: Bool { type.toBool(self) }
-    var toString: String { type.toString(self) }
 
     init(_ type: any ValueType, _ data: Any) {
         self.type = type
@@ -817,7 +817,7 @@ class StandardLibrary: Namespace {
         }
 
         override func toString(_ value: Value) -> String {
-            "[\(cast(value).map({$0.toString}).joined(separator: " "))]"
+            "[\(cast(value).map({"\($0)"}).joined(separator: " "))]"
         }
     }
 
@@ -918,7 +918,7 @@ class StandardLibrary: Namespace {
 
         override func toString(_ value: Value) -> String {
             let p = cast(value)
-            return "\(p.0.toString):\(p.1.toString)"
+            return "\(p.0):\(p.1)"
         }
     }
 
@@ -1197,7 +1197,7 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
                 try fs.emit(vm, inNamespace: ns)
                 vm.emit(.stop)
                 try vm.eval(fromPc: pc, stack: &stack)
-                print("\(stack.isEmpty ? "_" : "\(stack.pop().toString)")\n")
+                print("\(stack.isEmpty ? "_" : "\(stack.pop())")\n")
                 input.reset()
             } catch {
                 print("\(error)\n")

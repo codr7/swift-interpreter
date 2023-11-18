@@ -1,7 +1,10 @@
-struct Value {
+struct Value: CustomStringConvertible {
     let data: Any
     let type: any ValueType
-    
+
+    var description: String { type.toString(self) }
+    var toBool: Bool { type.toBool(self) }
+
     init(_ type: any ValueType, _ data: Any) {
         self.type = type
         self.data = data
@@ -11,14 +14,6 @@ struct Value {
                         inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
         try self.type.identifierEmit(self, vm, at: pos, inNamespace: ns, withArguments: &args)
     }
-
-    func toBool(at pos: Position) throws -> Bool {
-        try type.toBool(self, at: pos)
-    }
-
-    func toString(at pos: Position) throws -> String {
-        try type.toString(self, at: pos)
-    }
 }
 
 protocol ValueType: CustomStringConvertible {
@@ -26,14 +21,14 @@ protocol ValueType: CustomStringConvertible {
     
     var name: String { get }
 
-    func cast(_ value: Value, at: Position) throws -> V
-
+    func cast(_ value: Value) -> V
     func equals(_ other: any ValueType) -> Bool
     
     func identifierEmit(_ value: Value, _ vm: VM, at: Position, inNamespace: Namespace, withArguments args: inout [Form]) throws
 
-    func toBool(_ value: Value, at: Position) throws -> Bool
-    func toString(_ value: Value, at: Position) throws -> String
+    func safeCast(_ value: Value, at: Position) throws -> V
+    func toBool(_ value: Value) -> Bool
+    func toString(_ value: Value) -> String
 }
 
 class BasicValueType<V>: ValueType {
@@ -44,14 +39,8 @@ class BasicValueType<V>: ValueType {
         self.name = name
     }
 
-    func cast(_ value: Value, at pos: Position) throws -> V {
-        let v = value.data as? V
-
-        if v == nil {
-            throw EvalError.typeMismatch(pos, self, value.type)
-        }
-
-        return v!
+    func cast(_ value: Value) -> V {
+        value.data as! V
     }
 
     func equals(_ other: any ValueType) -> Bool {
@@ -66,11 +55,21 @@ class BasicValueType<V>: ValueType {
         args.insert(Literal(pos, value), at: 0)
     }
 
-    func toBool(_ value: Value, at: Position) throws -> Bool {
+    func safeCast(_ value: Value, at pos: Position) throws -> V {
+        let v = value.data as? V
+
+        if v == nil {
+            throw EvalError.typeMismatch(pos, self, value.type)
+        }
+
+        return v!
+    }
+
+    func toBool(_ value: Value) -> Bool {
         true
     }
 
-    func toString(_ value: Value, at: Position) throws -> String {
+    func toString(_ value: Value) -> String {
         "\(value.data)"        
     }
 }
@@ -371,13 +370,13 @@ class Task {
 class VM {    
     enum Operation {
         case argument(Int)
-        case branch(Position, PC)
+        case branch(PC)
         case call(Position, Function)
         case goto(PC)
         case makeArray(Int)
         case makePair
         case nop
-        case or(Position, PC)
+        case or(PC)
         case popCall
         case push(Value)
         case stop
@@ -430,8 +429,8 @@ class VM {
             case let.argument(index):
                 push(stack[callStack.last!.stackOffset+index])
                 pc += 1
-            case let .branch(pos, elsePc):
-                if try pop().toBool(at: pos) {
+            case let .branch(elsePc):
+                if pop().toBool {
                     pc += 1
                 } else {
                     pc = elsePc
@@ -453,8 +452,8 @@ class VM {
                 pc += 1
             case .nop:
                 pc += 1
-            case let .or(pos, endPc):
-                if try pop().toBool(at: pos) {
+            case let .or(endPc):
+                if pop().toBool {
                     pc = endPc
                 } else {
                     pc += 1
@@ -772,7 +771,7 @@ class StandardLibrary: Namespace {
         
         override func identifierEmit(_ value: Value, _ vm: VM,
                                      at pos: Position, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-            vm.emit(.argument(try cast(value, at: pos)))
+            vm.emit(.argument(cast(value)))
         }
     }
 
@@ -781,12 +780,12 @@ class StandardLibrary: Namespace {
             super.init("Array")
         }
         
-        override func toBool(_ value: Value, at pos: Position) throws -> Bool {
-            return try cast(value, at: pos).count != 0
+        override func toBool(_ value: Value) -> Bool {
+            return cast(value).count != 0
         }
 
-        override func toString(_ value: Value, at pos: Position) throws -> String {
-            "[\(try cast(value, at: pos).map({try $0.toString(at: pos)}).joined(separator: " "))]"
+        override func toString(_ value: Value) -> String {
+            "[\(cast(value).map({"\($0)"}).joined(separator: " "))]"
         }
     }
 
@@ -795,12 +794,12 @@ class StandardLibrary: Namespace {
             super.init("Bool")
         }
         
-        override func toBool(_ value: Value, at pos: Position) throws -> Bool {
-            try cast(value, at: pos)
+        override func toBool(_ value: Value) -> Bool {
+            cast(value)
         }
 
-        override func toString(_ value: Value, at pos: Position) throws -> String {
-            "\(try cast(value, at: pos))"
+        override func toString(_ value: Value) -> String {
+            "\(cast(value))"
         }
     }
     
@@ -811,7 +810,7 @@ class StandardLibrary: Namespace {
         
         override func identifierEmit(_ value: Value, _ vm: VM,
                                      at pos: Position, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-            let f = try cast(value, at: pos)
+            let f = cast(value)
             
             for _ in 0..<f.arguments.count {
                 if args.isEmpty {
@@ -830,8 +829,8 @@ class StandardLibrary: Namespace {
             super.init("Int")
         }
         
-        override func toBool(_ value: Value, at pos: Position) throws -> Bool {
-            try cast(value, at: pos) != 0
+        override func toBool(_ value: Value) -> Bool {
+            cast(value) != 0
         }
     }
 
@@ -842,7 +841,7 @@ class StandardLibrary: Namespace {
         
         override func identifierEmit(_ value: Value, _ vm: VM,
                                      at pos: Position, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-            try cast(value, at: pos).emit(vm, at: pos, inNamespace: ns, withArguments: &args)
+            try cast(value).emit(vm, at: pos, inNamespace: ns, withArguments: &args)
         }
     }
 
@@ -851,14 +850,14 @@ class StandardLibrary: Namespace {
             super.init("Pair")
         }
         
-        override func toBool(_ value: Value, at pos: Position) throws -> Bool {
-            let v = try cast(value, at: pos)
-            return try v.0.toBool(at: pos) && v.1.toBool(at: pos)
+        override func toBool(_ value: Value) -> Bool {
+            let v = cast(value)
+            return v.0.toBool && v.1.toBool
         }
 
-        override func toString(_ value: Value, at pos: Position) throws -> String {
-            let p = try cast(value, at: pos)
-            return "\(try p.0.toString(at: pos)):\(try p.1.toString(at: pos))"
+        override func toString(_ value: Value) -> String {
+            let p = cast(value)
+            return "\(p.0):\(p.1)"
         }
     }
 
@@ -867,12 +866,12 @@ class StandardLibrary: Namespace {
             super.init("String")
         }
         
-        override func toBool(_ value: Value, at pos: Position) throws -> Bool {
-            try cast(value, at: pos).count != 0
+        override func toBool(_ value: Value) -> Bool {
+            cast(value).count != 0
         }
 
-        override func toString(_ value: Value, at pos: Position) throws -> String {
-            "\"\(try cast(value, at: pos))\""
+        override func toString(_ value: Value) -> String {
+            "\"\(cast(value))\""
         }
     }
 
@@ -924,7 +923,7 @@ class StandardLibrary: Namespace {
                     throw EmitError.unknownIdentifier(p.right.position, tid)
                 }
                 
-                return try (n, self.metaType.cast(t!, at: pos))
+                return try (n, self.metaType.safeCast(t!, at: pos))
             }
             
             let body = args.removeFirst()
@@ -973,14 +972,14 @@ class StandardLibrary: Namespace {
                 }
             }
             
-            vm.code[ifPc] = .branch(pos, elsePc)
+            vm.code[ifPc] = .branch(elsePc)
         }
         
         bindMacro("or", 2) {(_, vm, pos, ns, args) throws in
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             let or = vm.emit(.nop)
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
-            vm.code[or] = .or(pos, vm.emitPc)
+            vm.code[or] = .or(vm.emitPc)
         }
     
         bindMacro("task", 1) {(_, vm, pos, ns, args) throws in
@@ -995,38 +994,38 @@ class StandardLibrary: Namespace {
         }
 
         bindFunction("=", [("left", intType), ("right", intType)]) {(_, vm, pos) throws in
-            let r = try self.intType.cast(vm.pop(), at: pos)
-            let l = try self.intType.cast(vm.pop(), at: pos)
+            let r = self.intType.cast(vm.pop())
+            let l = self.intType.cast(vm.pop())
             vm.push(Value(self.boolType, l == r))
         }
 
         bindFunction("<", [("left", intType), ("right", intType)]) {(_, vm, pos) throws in
-            let r = try self.intType.cast(vm.pop(), at: pos)
-            let l = try self.intType.cast(vm.pop(), at: pos)
+            let r = self.intType.cast(vm.pop())
+            let l = self.intType.cast(vm.pop())
             vm.push(Value(self.boolType, l < r))
         }
         
         bindFunction(">", [("left", intType), ("right", intType)]) {(_, vm, pos) throws in
-            let r = try self.intType.cast(vm.pop(), at: pos)
-            let l = try self.intType.cast(vm.pop(), at: pos)
+            let r = self.intType.cast(vm.pop())
+            let l = self.intType.cast(vm.pop())
             vm.push(Value(self.boolType, l > r))
         }
         
         bindFunction("+", [("left", intType), ("right", intType)]) {(_, vm, pos) throws in
-            let r = try self.intType.cast(vm.pop(), at: pos)
-            let l = try self.intType.cast(vm.pop(), at: pos)
+            let r = self.intType.cast(vm.pop())
+            let l = self.intType.cast(vm.pop())
             vm.push(Value(self.intType, l + r))
         }
 
         bindFunction("-", [("left", intType), ("right", intType)]) {(_, vm, pos) throws in
-            let r = try self.intType.cast(vm.pop(), at: pos)
-            let l = try self.intType.cast(vm.pop(), at: pos)
+            let r = self.intType.cast(vm.pop())
+            let l = self.intType.cast(vm.pop())
             vm.push(Value(self.intType, l - r))
         }
         
         bindFunction("call", [("target", functionType), ("arguments", arrayType)]) {(_, vm, pos) throws in
-            let args = try self.arrayType.cast(vm.pop(), at: pos)
-            let f = try self.functionType.cast(vm.pop(), at: pos)
+            let args = self.arrayType.cast(vm.pop())
+            let f = self.functionType.cast(vm.pop())
 
             if args.count != f.arguments.count {
                 throw EvalError.arityMismatch(pos, f.arguments.count, args.count)
@@ -1077,7 +1076,7 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
                 try fs.emit(vm, inNamespace: ns)
                 vm.emit(.stop)
                 try vm.eval(fromPc: pc)
-                print("\(vm.stack.isEmpty ? "_" : "\(try vm.pop().toString(at: pos))")\n")
+                print("\(vm.stack.isEmpty ? "_" : "\(vm.pop())")\n")
                 input.reset()
             } catch {
                 print("\(error)\n")
