@@ -35,50 +35,26 @@ benchmark 10000 fib2 70 0 1
 We started out using the most obvious implementation possible for a call stack: an array of call frames. 
 
 ```
-struct Function {
-    struct Call {
-	let position: Position
-        let returnPc: PC
-        let stackOffset: Int
-        let target: Function
-        
-        init(_ target: Function, at pos: Position, stackOffset: Int, returnPc: PC) {
-            self.target = target
-	    self.position = pos
-            self.stackOffset = stackOffset
-            self.returnPc = returnPc
-        }
-    }
-}
-
 class VM {    
     var callStack: [Function.Call] {
         get {currentTask!.callStack}
         set(v) {currentTask!.callStack = v} 
     }
-    ...
 }
 
 func eval(fromPc: PC) throws {
-    ...
     loop: while true {
-        ...
         switch op {
         case let .popCall(target):
             let c = vm.callStack.removeLast()
-	    ...
-	...
 	}
     }
 }
 
 stdMacro("function") {(_, vm, pos, ns, args) throws in
-    ...
     let f = Function(id, fargs) {(f, vm) throws in
         vm.callStack.append(Function.Call(f, at: pos, stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc))
-	...
     }
-    ...
 }
 ```
 
@@ -88,14 +64,11 @@ Converting it to an embedded linked list, where each frame contains an optional 
 struct Function {
     class Call {
         let parentCall: Call?
-	...
         
         init(_ parentCall: Call?, ...) {
             self.parentCall = parentCall
-	    ...
         }
     }
-    ...
 }
 
 class VM {        
@@ -103,31 +76,23 @@ class VM {
         get {currentTask!.currentCall}
         set(v) {currentTask!.currentCall = v} 
     }
-    ...
 }
 
 func eval(fromPc: PC) throws {
-    ...
     loop: while true {
-        ...
         switch op {
         case let .popCall(target):
            let c = vm.currentCall!
            vm.currentCall = c.parentCall
-	    ...
-	...
 	}
     }
 }
 
 stdMacro("function") {(_, vm, pos, ns, args) throws in
-    ...
     let f = Function(id, fargs) {(f, vm) throws in
         vm.currentCall = Function.Call(vm.currentCall, f,
                                        at: pos, stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc)
-	...
     }
-    ...
 }
 ```
 
@@ -153,7 +118,6 @@ class VM {
             switch op {
             case let .push(value):
                 push(value)
-		...
 	    }
 	}
     }
@@ -171,6 +135,10 @@ class VM {
 Passing the current program counter and stack as arguments instead of manipulating them via the current task gives us a 75% performance boost.
 
 ```
+struct Function: CustomStringConvertible {
+    typealias Body = (Function, VM, inout PC, inout Stack, Position) throws -> Void
+}
+
 class VM {
     func eval(fromPc: PC, stack: inout Stack) throws {
         var pc = fromPc
@@ -179,15 +147,9 @@ class VM {
             switch op {
             case let .push(value):
                 stack.push(value)
-		...
 	    }
 	}
     }
-}
-
-struct Function: CustomStringConvertible {
-    typealias Body = (Function, VM, inout PC, inout Stack, Position) throws -> Void
-    ...
 }
 
 class StandardLibrary: Namespace {
@@ -214,11 +176,9 @@ enum EmitOption  {
 }
 
 class FunctionType: ValueType {
-    ...
     override func identifierEmit(_ value: Value, _ vm: VM, at pos: Position,
                                  inNamespace ns: Namespace, withArguments args: inout [Form],
                                  options opts: Set<EmitOption>) throws {
-	...
         if opts.contains(.returning) && f.startPc != nil {
             vm.emit(.tailCall(pos, f))
         } else {
@@ -232,9 +192,7 @@ stdMacro("return") {(_, vm, pos, ns, args) throws in
 }
 
 func eval(fromPc: PC) throws {
-    ...
     loop: while true {
-        ...
         switch op {	
         case let .tailCall(pos, target):
             let c = vm.currentCall
@@ -247,7 +205,6 @@ func eval(fromPc: PC) throws {
                 c!.stackOffset = vm.stack.count - target.arguments.count
                 pc = target.startPc!
             }
-	...
 	}
     }
 }
@@ -258,9 +215,7 @@ For simplcitys sake, function argument type checks were initially performed at r
 
 ```
 struct Function: CustomStringConvertible {
-    ...
     func call(_ vm: VM, at pos: Position) throws {
-        ...
         for i in 0..<arguments.count {
             let expected = arguments[i].1
             let actual  = vm.stack[vm.stack.count - arguments.count + i].type
@@ -269,7 +224,6 @@ struct Function: CustomStringConvertible {
                 throw EvalError.typeMismatch(pos, expected, actual)
             }
         }
-	...
     }
 }
 ```
@@ -280,7 +234,6 @@ This gives us a 20% performance boost.
 
 ```
 class FunctionType: BasicValueType<Function> {
-    ...
     override func identifierEmit(_ value: Value,
                                  _ vm: VM,
                                  at pos: Position,
@@ -317,16 +270,12 @@ class FunctionType: BasicValueType<Function> {
 	    try f.emit(vm, inNamespace: ns, withArguments: &args, options: [])
 	    if actual == nil { vm.emit(.checkType(f.position, expected)) }
 	}
-	...
     }
 }
 
 class VM {
-    ...
     func eval(fromPc: PC) throws {
-        ...
         loop: while true {
-	    ...            
             switch op {
             case let .checkType(pos, expected):
                 let actual = stack.last!.type
