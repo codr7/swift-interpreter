@@ -1,13 +1,12 @@
-* add eval support to constant
-** emit operations if not literal
-** emit stop
-** eval with clean stack
-** pop & assign value
+* rename constant to define
+* add evaluate macro from part5
+** emit operations + stop
+** evaluate with clean stack
+** insert values as literals
 * cache constant stack suffix in call ops
 ** benchmark
 * add queue type
 ** add task producer/consumer example
-* document part 2
 
 swift run -c release
 

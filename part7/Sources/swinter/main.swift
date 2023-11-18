@@ -981,7 +981,7 @@ class StandardLibrary: Namespace {
             vm.code[benchmarkPc] = .benchmark(pos, vm.emitPc)
         }
         
-        bindMacro("constant", 2) {(_, vm, pos, ns, args) throws in
+        bindMacro("define", 2) {(_, vm, pos, ns, args) throws in
             let name = try args.removeFirst().cast(Identifier.self).name
             let value = try args.removeFirst().cast(Literal.self).value
             ns[name] = value
