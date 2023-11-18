@@ -82,6 +82,7 @@ enum EmitError: Error {
 }
 
 enum EvalError: Error {
+    case arityMismatch(Position, Int, Int)
     case missingValue(Position)
     case typeMismatch(Position, any ValueType, any ValueType)
 }
@@ -318,6 +319,28 @@ class Pair: BasicForm, Form {
     }
 }
 
+class Reference: BasicForm, Form {
+    let id: String
+    override var description: String { "&\(id)" }
+
+    init(_ position: Position, _ id: String) {
+        self.id = id
+        super.init(position)
+    }
+
+    func emit(_ vm: VM,
+              inNamespace ns: Namespace,
+              withArguments args: inout [Form]) throws {
+        let v = ns[id]
+
+        if v == nil {
+            throw EmitError.unknownIdentifier(position, id)
+        }
+        
+        vm.emit(.push(v!))
+    }
+}
+
 extension [Form] {
     func emit(_ vm: VM, inNamespace ns: Namespace) throws {
         var fs = self
@@ -501,7 +524,14 @@ struct Input {
 
 typealias Reader = (_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool
 
-let readers = [readWhitespace, readPair, readList, readArray, readString, readInt, readIdentifier]
+let readers = [readWhitespace,
+               readReference,
+               readPair,
+               readList,
+               readArray,
+               readString,
+               readInt,
+               readIdentifier]
 
 func readForm(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
     for r in readers {
@@ -639,6 +669,25 @@ func readPair(_ input: inout Input, _ output: inout [Form], _ pos: inout Positio
     let right = output.removeLast()
     let left = output.removeLast()
     output.append(Pair(fpos, left, right))
+    return true
+}
+
+func readReference(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
+    let fpos = pos
+    let c = input.popChar()
+    
+    if c != "&" {
+        if c != nil { input.pushChar(c!) }
+        return false
+    }
+    
+    pos.column += 1
+
+    if !(try readIdentifier(&input, &output, &pos)) {
+        throw ReadError.invalidSyntax(fpos)
+    }
+    
+    output.append(Reference(fpos, try output.removeLast().cast(Identifier.self).name))
     return true
 }
 
@@ -886,6 +935,10 @@ class StandardLibrary: Namespace {
         bindFunction("call", [("target", functionType), ("arguments", arrayType)]) {(_, vm, pos) throws in
             let args = try self.arrayType.cast(vm.pop(), at: pos)
             let f = try self.functionType.cast(vm.pop(), at: pos)
+
+            if args.count != f.arguments.count {
+                throw EvalError.arityMismatch(pos, f.arguments.count, args.count)
+            }
 
             for i in 0..<f.arguments.count {
                 let expected = f.arguments[i].1

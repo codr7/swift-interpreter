@@ -1,7 +1,4 @@
-* cache currentCall in vm
-** switch on yield
 * add dot calls to part 5-7
-* add function ref support to part5-7
 * cache constant stack suffix in call ops
 ** benchmark
 * add queue type
