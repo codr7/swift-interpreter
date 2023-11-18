@@ -479,11 +479,11 @@ class VM {
     }
 
     func pop() -> Value {
-        currentTask!.stack.removeLast()
+        stack.removeLast()
     }
 
     func push(_ value: Value) {
-        currentTask!.stack.append(value)
+        stack.append(value)
     }
 
     func startTask(pc: PC = 0) {
