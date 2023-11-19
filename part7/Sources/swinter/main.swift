@@ -983,8 +983,32 @@ class StandardLibrary: Namespace {
         
         bindMacro("define", 2) {(_, vm, pos, ns, args) throws in
             let name = try args.removeFirst().cast(Identifier.self).name
-            let value = try args.removeFirst().cast(Literal.self).value
-            ns[name] = value
+            let startPc = vm.emitPc
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [])
+            vm.emit(.stop)
+            var stack: Stack = []
+            try vm.evaluate(fromPc: startPc, stack: &stack)
+            
+            if stack.isEmpty {
+                throw EvaluateError.missingValue(pos)
+            }
+
+            vm.code.removeLast(vm.emitPc - startPc)
+            ns[name] = stack.pop()
+        }
+
+        bindMacro("evaluate", 1) {(_, vm, pos, ns, args) throws in
+            let startPc = vm.emitPc
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [])
+            vm.emit(.stop)
+            var stack: Stack = []
+            try vm.evaluate(fromPc: startPc, stack: &stack)
+
+            for v in stack {
+                args.insert(Literal(pos, v), at: 0)
+            }
+
+            vm.code.removeLast(vm.emitPc - startPc)
         }
 
         bindMacro("function", 2) {(_, vm, pos, ns, args) throws in

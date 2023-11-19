@@ -1,8 +1,16 @@
-* rename constant to define
-* add evaluate macro from part5
-** emit operations + stop
-** evaluate with clean stack
-** insert values as literals
+* emit function body with new ns* 
+
+* fix nexted functions
+** find all argument types in ns and bind with increaded nesting level in new ns?
+
+function foo(x:Int): Int (
+  function bar(y:Int): Int
+    + x y
+  bar 42
+)
+
+* implement closures
+** trigger capture on (escaping?) reference to nested function
 * cache constant stack suffix in call ops
 ** benchmark
 * add queue type
@@ -27,3 +35,5 @@ function fib2(n:Int a:Int b:Int):Int if n.> 1 return fib2 n.- 1 b a.+ b else if 
 0.899550548
 0.679791056 stack arg
 0.542982574 local pc
+
+define foo + 1 2
