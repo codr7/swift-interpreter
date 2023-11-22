@@ -878,34 +878,6 @@ class StandardLibrary: Namespace {
         self["Pair"] = Value(metaType, pairType)
         self["String"] = Value(metaType, stringType)
 
-        bindMacro("define", 2) {(_, vm, pos, ns, args) throws in
-            let name = try args.removeFirst().cast(Identifier.self).name
-            let startPc = vm.emitPc
-            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
-            vm.emit(.stop)
-            try vm.evaluate(fromPc: startPc)
-            
-            if vm.stack.isEmpty {
-                throw EvaluateError.missingValue(pos)
-            }
-
-            vm.code.removeLast(vm.emitPc - startPc)
-            ns[name] = vm.pop()
-        }
-
-        bindMacro("evaluate", 1) {(_, vm, pos, ns, args) throws in
-            let startPc = vm.emitPc
-            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
-            vm.emit(.stop)
-            try vm.evaluate(fromPc: startPc)
-
-            while !vm.stack.isEmpty {
-                args.insert(Literal(pos, vm.pop()), at: 0)
-            }
-
-            vm.code.removeLast(vm.emitPc - startPc)
-        }
-
         bindMacro("function", 2) {(_, vm, pos, ns, args) throws in
             var id: String?
             

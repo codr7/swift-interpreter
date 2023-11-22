@@ -100,6 +100,12 @@ enum ReadError: Error {
 
 typealias PC = Int
 
+struct Argument {
+    let callOffset: Int
+    let index: Int
+    let type: any ValueType
+}
+
 struct Function: CustomStringConvertible {
     class Call {
         let parentCall: Call?
@@ -115,6 +121,7 @@ struct Function: CustomStringConvertible {
             self.position = pos
             self.stackOffset = stackOffset
             self.returnPc = returnPc
+            print("\(stackOffset) \(returnPc)")
         }
     }
 
@@ -169,9 +176,12 @@ struct Macro: CustomStringConvertible {
     }
 }
 
-class Namespace {
+class Namespace: Sequence {
+    typealias Bindings = [String:Value]
+    typealias Iterator = Bindings.Iterator
+    
     let parent: Namespace?
-    var bindings: [String:Value] = [:]
+    var bindings: Bindings = [:]
     
     subscript(key: String) -> Value? {
         get {
@@ -188,6 +198,10 @@ class Namespace {
 
     init(_ parent: Namespace? = nil) {
         self.parent = parent
+    }
+
+    public func makeIterator() -> Iterator {
+        bindings.makeIterator()
     }
 }
 
@@ -386,7 +400,7 @@ class Task {
 
 class VM {    
     enum Operation {
-        case argument(Int)
+        case argument(Argument)
         case benchmark(Position, PC)
         case branch(PC)
         case call(Position, Function)
@@ -436,8 +450,14 @@ class VM {
             let op = code[pc]
             
             switch op {
-            case let .argument(index):
-                stack.push(stack[currentCall!.stackOffset+index])
+            case let .argument(arg):
+                var c = currentCall!
+                
+                for _ in 0..<arg.callOffset {
+                    c = c.parentCall!
+                }
+                
+                stack.push(stack[c.stackOffset+arg.index])
                 pc += 1
             case let .branch(elsePc):
                 if stack.pop().toBool {
@@ -796,14 +816,14 @@ func readWhitespace(_ input: inout Input, _ output: inout [Form], _ pos: inout P
 }
 
 class StandardLibrary: Namespace {
-    class ArgumentType: BasicValueType<(Int, any ValueType)> {
+    class ArgumentType: BasicValueType<Argument> {
         init() {
             super.init("Argument")
         }
         
         override func identifierEmit(_ value: Value, _ vm: VM,
                                      at pos: Position, inNamespace ns: Namespace, withArguments args: inout [Form], options: Set<EmitOption>) throws {
-            vm.emit(.argument(cast(value).0))
+            vm.emit(.argument(cast(value)))
         }
     }
 
@@ -860,7 +880,7 @@ class StandardLibrary: Namespace {
 
                     if v != nil {
                         if v!.type.equals(std.argumentType) {
-                            actual = std.argumentType.cast(v!).1
+                            actual = std.argumentType.cast(v!).type
                         } else if v!.type.equals(std.functionType) {
                             actual = std.functionType.cast(v!).resultType
                         }
@@ -983,9 +1003,11 @@ class StandardLibrary: Namespace {
         
         bindMacro("define", 2) {(_, vm, pos, ns, args) throws in
             let name = try args.removeFirst().cast(Identifier.self).name
+            let gotoPc = vm.emit(.nop)
             let startPc = vm.emitPc
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [])
             vm.emit(.stop)
+            vm.code[gotoPc] = .goto(vm.emitPc)
             var stack: Stack = []
             try vm.evaluate(fromPc: startPc, stack: &stack)
             
@@ -993,22 +1015,21 @@ class StandardLibrary: Namespace {
                 throw EvaluateError.missingValue(pos)
             }
 
-            vm.code.removeLast(vm.emitPc - startPc)
             ns[name] = stack.pop()
         }
 
         bindMacro("evaluate", 1) {(_, vm, pos, ns, args) throws in
+            let gotoPc = vm.emit(.nop)
             let startPc = vm.emitPc
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [])
             vm.emit(.stop)
+            vm.code[gotoPc] = .goto(vm.emitPc)
             var stack: Stack = []
             try vm.evaluate(fromPc: startPc, stack: &stack)
 
             for v in stack {
                 args.insert(Literal(pos, v), at: 0)
             }
-
-            vm.code.removeLast(vm.emitPc - startPc)
         }
 
         bindMacro("function", 2) {(_, vm, pos, ns, args) throws in
@@ -1059,10 +1080,18 @@ class StandardLibrary: Namespace {
             }
             
             let fns = Namespace(ns)
+
+            for (k, v) in ns {
+                if v.type.equals(std.argumentType) {
+                    let a = std.argumentType.cast(v)
+                    fns[k] = Value(std.argumentType,
+                                   Argument(callOffset: a.callOffset+1, index: a.index, type: a.type))
+                }
+            }
             
             for i in 0..<fargs.count {
                 let a = fargs[i]
-                fns[a.0] = Value(self.argumentType, (i, a.1))
+                fns[a.0] = Value(self.argumentType, Argument(callOffset: 0, index: i, type: a.1))
             }
             
             try body.emit(vm, inNamespace: fns, withArguments: &args, options: [])
