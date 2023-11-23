@@ -1,9 +1,17 @@
-* implement closures
-** trigger capture on (escaping?) reference to nested function
+* add emit option .function(f)
+** use to set name in function macro
+** use to trigger capture of closure arguments
+
+function foo(x:Int):Function (
+  function bar(y:Int):Int 
+    + x y
+  &bar
+)
+
+call foo 42 [3]
+
 * cache constant stack suffix in call ops
 ** benchmark
-* add queue type
-** add task producer/consumer example
 
 swift run -c release
 
@@ -16,7 +24,7 @@ function fib1(n:Int):Int if n.< 2 n else (fib1 n.- 1).+ fib1 n.- 2 benchmark 100
 1.922285964 stack arg
 1.555371778 local pc
 
-function fib2(n:Int a:Int b:Int):Int if n.> 1 return fib2 n.- 1 b a.+ b else if n.= 0 a else b benchmark 10000 fib2 70 0 1
+function fib2(n:Int a:Int b:Int):Int if n.> 1 return fib2 n.- 1 b a.+ b else if n.= 0 a else b benchmark 10000 fib2 70 0 1a
 0.840631962 
 1.174382059 arg type check
 0.985196169 emit type check
@@ -27,8 +35,8 @@ function fib2(n:Int a:Int b:Int):Int if n.> 1 return fib2 n.- 1 b a.+ b else if 
 
 define foo + 1 2
 
-function foo(x:Int): Int (
-  function bar(y:Int): Int
+function foo(x:Int):Int (
+  function bar(y:Int):Int
     + x y
   bar 42
 )

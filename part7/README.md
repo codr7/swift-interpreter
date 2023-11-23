@@ -172,14 +172,14 @@ A tail call is a call of a user defined function directly followed by a return, 
 
 ```
 enum EmitOption  {
-    case returning
+    case tailCall
 }
 
 class FunctionType: ValueType {
     override func identifierEmit(_ value: Value, _ vm: VM, at pos: Position,
                                  inNamespace ns: Namespace, withArguments args: inout [Form],
                                  options opts: Set<EmitOption>) throws {
-        if opts.contains(.returning) && f.startPc != nil {
+        if opts.contains(.tailCall) && f.startPc != nil {
             vm.emit(.tailCall(pos, f))
         } else {
             vm.emit(.call(pos, f))
@@ -188,7 +188,7 @@ class FunctionType: ValueType {
 }
 
 stdMacro("return") {(_, vm, pos, ns, args) throws in
-    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [.returning])
+    try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: [.tailCall])
 }
 
 func eval(fromPc: PC) throws {
