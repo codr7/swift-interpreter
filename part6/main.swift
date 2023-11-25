@@ -1,3 +1,5 @@
+import Foundation
+
 struct Value: CustomStringConvertible {
     let data: Any
     let type: any ValueType
@@ -1038,6 +1040,13 @@ class StandardLibrary: Namespace {
             try f.call(vm, at: pos)
         }
 
+        bindFunction("load", [("path", stringType)]) {(_, vm, pos) throws in
+            let startPc = vm.emitPc
+            try load(vm, readForm, fromPath: self.stringType.cast(vm.pop()), inNamespace: self)
+            vm.emit(.stop)
+            try vm.evaluate(fromPc: startPc)
+        }
+        
         bindFunction("yield", []) {(_, vm, pos) throws in
             vm.tasks.append(vm.tasks.removeFirst())
         }
@@ -1053,6 +1062,13 @@ class StandardLibrary: Namespace {
 }
 
 let std = StandardLibrary()
+
+func load(_ vm: VM, _ reader: Reader, fromPath path: String, inNamespace ns: Namespace) throws {
+    var input = Input(try String(contentsOfFile: path, encoding: String.Encoding.utf8))
+    var pos = Position(path)
+    let fs = try readAll(reader, &input, [], &pos)
+    try fs.emit(vm, inNamespace: ns)
+}
 
 func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
     var input = Input()
@@ -1104,4 +1120,12 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
  */
 
 let vm = VM()
+
+for p in CommandLine.arguments[1...] {
+    let startPc = vm.emitPc
+    try load(vm, readForm, fromPath: p, inNamespace: std)
+    vm.emit(.stop)
+    try vm.evaluate(fromPc: startPc)
+}
+
 try repl(vm, readForm, inNamespace: std)

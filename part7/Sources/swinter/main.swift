@@ -1307,6 +1307,13 @@ class StandardLibrary: Namespace {
             try f.call(vm, &pc, &stack, at: pos)
         }
         
+        bindFunction("load", [("path", stringType)], nil) {(_, vm, pc, stack, pos) throws in
+            let startPc = vm.emitPc
+            try load(vm, readForm, fromPath: self.stringType.cast(stack.pop()), inNamespace: self)
+            vm.emit(.stop)
+            try vm.evaluate(fromPc: startPc, stack: &stack)
+        }
+
         bindFunction("milliseconds", [("value", intType)], timeType) {(_, vm, pc, stack, pos) throws in
             let v = self.intType.cast(stack.pop())
             stack.push(Value(self.timeType, Duration.milliseconds(v)))
@@ -1340,10 +1347,16 @@ class StandardLibrary: Namespace {
 
 let std = StandardLibrary()
 
-func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
+func load(_ vm: VM, _ reader: Reader, fromPath path: String, inNamespace ns: Namespace) throws {
+    var input = Input(try String(contentsOfFile: path, encoding: String.Encoding.utf8))
+    var pos = Position(path)
+    let fs = try readAll(reader, &input, [], &pos)
+    try fs.emit(vm, inNamespace: ns)
+}
+
+func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace, stack: inout Stack) throws {
     var input = Input()
     var prompt = 1
-    var stack: Stack = []
     
     while true {
         print("\(prompt). ", terminator: "")
@@ -1372,4 +1385,13 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
 }
 
 let vm = VM()
-try repl(vm, readForm, inNamespace: std)
+var stack: Stack = []
+
+for p in CommandLine.arguments[1...] {
+    let startPc = vm.emitPc
+    try load(vm, readForm, fromPath: p, inNamespace: std)
+    vm.emit(.stop)
+    try vm.evaluate(fromPc: startPc, stack: &stack)
+}
+
+try repl(vm, readForm, inNamespace: std, stack: &stack)

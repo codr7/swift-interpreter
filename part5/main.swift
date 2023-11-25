@@ -1,3 +1,5 @@
+import Foundation
+
 struct Value: CustomStringConvertible {
     let data: Any
     let type: any ValueType
@@ -880,21 +882,14 @@ class StandardLibrary: Namespace {
 
         bindMacro("function", 2) {(_, vm, pos, ns, args) throws in
             var id: String?
-            
-            if args.first! is Identifier {
-                id = try args.removeFirst().cast(Identifier.self).name
-            }
+            if args.first! is Identifier { id = try args.removeFirst().cast(Identifier.self).name }
 
             let fargs = try args.removeFirst().cast(List.self).items.map {(it) in
                 let p = try it.cast(Pair.self)
                 let n = try p.left.cast(Identifier.self).name
                 let tid = try p.right.cast(Identifier.self).name
                 let t = ns[tid]
-
-                if t == nil {
-                    throw EmitError.unknownIdentifier(p.right.position, tid)
-                }
-                
+                if t == nil { throw EmitError.unknownIdentifier(p.right.position, tid) }
                 return try (n, self.metaType.safeCast(t!, at: pos))
             }
             
@@ -903,14 +898,14 @@ class StandardLibrary: Namespace {
             let startPc = vm.emitPc
             
             let f = Function(id ?? "lambda", fargs) {(f, vm, pos) throws in
-                vm.callStack.append(Function.Call(f, at: pos, stackOffset: vm.stack.count-fargs.count, returnPc: vm.pc))
+                vm.callStack.append(Function.Call(f,
+                                                  at: pos,
+                                                  stackOffset: vm.stack.count-fargs.count,
+                                                  returnPc: vm.pc))
                 vm.pc = startPc
             }
 
-            if id != nil {
-                ns[id!] = Value(self.functionType, f)
-            }
-            
+            if id != nil { ns[id!] = Value(self.functionType, f) }
             let fns = Namespace(ns)
             
             for i in 0..<fargs.count {
@@ -920,10 +915,7 @@ class StandardLibrary: Namespace {
             try body.emit(vm, inNamespace: fns, withArguments: &args)
             vm.emit(.popCall)
             vm.code[skip] = .goto(vm.emitPc)
-
-            if id == nil {
-                vm.emit(.push(Value(self.functionType, f)))
-            }
+            if id == nil { vm.emit(.push(Value(self.functionType, f))) }
         }
 
         bindMacro("or", 2) {(_, vm, pos, ns, args) throws in
@@ -949,7 +941,7 @@ class StandardLibrary: Namespace {
             let l = self.intType.cast(vm.pop())
             vm.push(Value(self.intType, l + r))
         }
-
+        
         bindFunction("call", [("target", functionType), ("arguments", arrayType)]) {(_, vm, pos) throws in
             let args = self.arrayType.cast(vm.pop())
             let f = self.functionType.cast(vm.pop())
@@ -971,6 +963,13 @@ class StandardLibrary: Namespace {
             try f.call(vm, at: pos)
         }
 
+        bindFunction("load", [("path", stringType)]) {(_, vm, pos) throws in
+            let startPc = vm.emitPc
+            try load(vm, readForm, fromPath: self.stringType.cast(vm.pop()), inNamespace: self)
+            vm.emit(.stop)
+            try vm.evaluate(fromPc: startPc)
+        }
+
         bindFunction("yield", []) {(_, vm, pos) throws in
             vm.tasks.append(vm.tasks.removeFirst())
         }
@@ -986,6 +985,13 @@ class StandardLibrary: Namespace {
 }
 
 let std = StandardLibrary()
+
+func load(_ vm: VM, _ reader: Reader, fromPath path: String, inNamespace ns: Namespace) throws {
+    var input = Input(try String(contentsOfFile: path, encoding: String.Encoding.utf8))
+    var pos = Position(path)
+    let fs = try readAll(reader, &input, [], &pos)
+    try fs.emit(vm, inNamespace: ns)
+}
 
 func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
     var input = Input()
@@ -1037,4 +1043,12 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
  */
 
 let vm = VM()
+
+for p in CommandLine.arguments[1...] {
+    let startPc = vm.emitPc
+    try load(vm, readForm, fromPath: p, inNamespace: std)
+    vm.emit(.stop)
+    try vm.evaluate(fromPc: startPc)
+}
+
 try repl(vm, readForm, inNamespace: std)

@@ -1,6 +1,4 @@
-* add load macro from part5
-
-* add check macro
+* add check macro from part6
 ** check [3] + 1 2
 
 * add support for ref closures
