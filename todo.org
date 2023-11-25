@@ -1,5 +1,3 @@
-* use ArgumentIndex struct in Argument
-
 * remove EmitOption
 ** modify last op in vm.code in return macro
 

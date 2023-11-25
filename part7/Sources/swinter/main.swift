@@ -108,20 +108,24 @@ enum ReadError: Error {
 
 typealias PC = Int
 
-struct ArgumentIndex: Equatable {
-    let callOffset: Int
-    let index: Int
-
-    init(_ callOffset: Int, _ index: Int) {
-        self.callOffset = callOffset
-        self.index = index
-    }
-}
-
 struct Argument {
-    let callOffset: Int
-    let index: Int
+    struct Value: Equatable {
+        let callOffset: Int
+        let index: Int
+        
+        init(_ callOffset: Int, _ index: Int) {
+            self.callOffset = callOffset
+            self.index = index
+        }
+    }
+
+    let value: Value
     let type: any ValueType
+
+    init(_ callOffset: Int, _ index: Int, _ type: any ValueType) {
+        self.value = Value(callOffset, index)
+        self.type = type
+    }
 }
 
 class Call {
@@ -151,23 +155,23 @@ class Function: CustomStringConvertible {
     let startPc: PC?
     var endPc: PC?
     
-    lazy var closureArguments: [ArgumentIndex] = {
-        var result: [ArgumentIndex] = []
+    lazy var closureArguments: [Argument.Value] = {
+        var result: [Argument.Value] = []
 
         if startPc != nil {
             for i in startPc!..<endPc! {
                 switch vm.code[i] {
                 case let .argument(arg):
-                    if arg.callOffset > 0 {
-                        let ai = ArgumentIndex(arg.callOffset-1, arg.index)
+                    if arg.value.callOffset > 0 {
+                        let ai = Argument.Value(arg.value.callOffset-1, arg.value.index)
                         
                         if result.firstIndex(of: ai) == nil {
                             result.append(ai)
                         }
                         
-                        vm.code[i] = .argument(Argument(callOffset: 0,
-                                                        index: arguments.count + result.firstIndex(of: ai)!,
-                                                        type: arg.type))
+                        vm.code[i] = .argument(Argument(0,
+                                                        arguments.count + result.firstIndex(of: ai)!,
+                                                        arg.type))
                     }
                 default:
                     break
@@ -548,8 +552,8 @@ class VM {
             switch op {
             case let .argument(arg):
                 var c = currentCall!
-                for _ in 0..<arg.callOffset { c = c.parentCall! }
-                stack.push(stack[c.stackOffset+arg.index])
+                for _ in 0..<arg.value.callOffset { c = c.parentCall! }
+                stack.push(stack[c.stackOffset+arg.value.index])
                 pc += 1
             case let .branch(elsePc):
                 pc += stack.pop().toBool ? pc + 1 : elsePc
@@ -1192,15 +1196,13 @@ class StandardLibrary: Namespace {
             for (k, v) in ns {
                 if v.type.equals(std.argumentType) {
                     let a = std.argumentType.cast(v)
-                    
-                    fns[k] = Value(std.argumentType,
-                                   Argument(callOffset: a.callOffset+1, index: a.index, type: a.type))
+                    fns[k] = Value(std.argumentType, Argument(a.value.callOffset+1, a.value.index, a.type))
                 }
             }
             
             for i in 0..<fargs.count {
                 let a = fargs[i]
-                fns[a.0] = Value(self.argumentType, Argument(callOffset: 0, index: i, type: a.1))
+                fns[a.0] = Value(self.argumentType, Argument(0, i, a.1))
             }
 
             var bodyOpts: Set<EmitOption> = []
