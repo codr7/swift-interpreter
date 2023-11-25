@@ -108,30 +108,40 @@ enum ReadError: Error {
 
 typealias PC = Int
 
+struct ArgumentIndex: Equatable {
+    let callOffset: Int
+    let index: Int
+
+    init(_ callOffset: Int, _ index: Int) {
+        self.callOffset = callOffset
+        self.index = index
+    }
+}
+
 struct Argument {
     let callOffset: Int
     let index: Int
     let type: any ValueType
 }
 
-struct Function: CustomStringConvertible {
-    class Call {
-        let parentCall: Call?
-        let returnPc: PC
-
-        var position: Position
-        var stackOffset: Int
-        var target: Function
-        
-        init(_ parentCall: Call?, _ target: Function, at pos: Position, stackOffset: Int, returnPc: PC) {
-            self.parentCall = parentCall
-            self.target = target
-            self.position = pos
-            self.stackOffset = stackOffset
-            self.returnPc = returnPc
-        }
+class Call {
+    let parentCall: Call?
+    let returnPc: PC
+    
+    var position: Position
+    var stackOffset: Int
+    var target: Function
+    
+    init(_ parentCall: Call?, _ target: Function, at pos: Position, stackOffset: Int, returnPc: PC) {
+        self.parentCall = parentCall
+        self.target = target
+        self.position = pos
+        self.stackOffset = stackOffset
+        self.returnPc = returnPc
     }
+}
 
+class Function: CustomStringConvertible {
     typealias Body = (Function, VM, inout PC, inout Stack, Position) throws -> Void
     
     let arguments: [(String, any ValueType)]
@@ -139,23 +149,83 @@ struct Function: CustomStringConvertible {
     let name: String
     let resultType: (any ValueType)?
     let startPc: PC?
+    var endPc: PC?
+    
+    lazy var closureArguments: [ArgumentIndex] = {
+        var result: [ArgumentIndex] = []
 
+        if startPc != nil {
+            for i in startPc!..<endPc! {
+                switch vm.code[i] {
+                case let .argument(arg):
+                    if arg.callOffset > 0 {
+                        let ai = ArgumentIndex(arg.callOffset-1, arg.index)
+                        
+                        if result.firstIndex(of: ai) == nil {
+                            result.append(ai)
+                        }
+                        
+                        vm.code[i] = .argument(Argument(callOffset: 0,
+                                                        index: arguments.count + result.firstIndex(of: ai)!,
+                                                        type: arg.type))
+                    }
+                default:
+                    break
+                }
+            }
+        }
+
+        return result
+    }()
+    
     var description: String { name }
     
     init(_ name: String,
          _ arguments: [(String, any ValueType)],
          _ resultType: (any ValueType)?,
          startPc: PC? = nil,
+         endPc: PC? = nil,
          _ body: @escaping Body) {
         self.name = name
         self.arguments = arguments
         self.resultType = resultType
         self.startPc = startPc
+        self.endPc = endPc
         self.body = body
     }
 
     func call(_ vm: VM, _ pc: inout PC, _ stack: inout Stack, at pos: Position) throws {
         try body(self, vm, &pc, &stack, pos)
+    }
+
+    func stackOffset(_ stack: Stack) -> Int {
+        stack.count - arguments.count
+    }
+}
+
+class Closure: Function {
+    let stack: Stack
+    
+    init(_ target: Function, _ stack: Stack) {
+        self.stack = stack
+
+        super.init(target.name,
+                   target.arguments,
+                   target.resultType,
+                   startPc: target.startPc,
+                   endPc: target.endPc,
+                   target.body)
+        
+        self.closureArguments = target.closureArguments
+    }
+    
+    override func call(_ vm: VM, _ pc: inout PC, _ stack: inout Stack, at pos: Position) throws {
+        stack.append(contentsOf: self.stack)
+        try super.call(vm, &pc, &stack, at: pos)
+    }
+
+    override func stackOffset(_ stack: Stack) -> Int {
+        stack.count - closureArguments.count - arguments.count
     }
 }
 
@@ -178,12 +248,12 @@ struct Macro: CustomStringConvertible {
               at pos: Position,
               inNamespace ns: Namespace,
               withArguments args: inout [Form],
-              options: inout Set<EmitOption>) throws {
+              options opts: inout Set<EmitOption>) throws {
         if args.count < arity {
             throw EmitError.missingArgument(pos)
         }
 
-        try body(self, vm, pos, ns, &args, &options)
+        try body(self, vm, pos, ns, &args, &opts)
     }
 }
 
@@ -413,7 +483,7 @@ class Task {
 
     let id: Id
 
-    var currentCall: Function.Call?
+    var currentCall: Call?
     var pc: PC
     var stack: Stack = []
 
@@ -430,6 +500,7 @@ class VM {
         case branch(PC)
         case call(Position, Function)
         case checkType(Position, any ValueType)
+        case closure(Function)
         case goto(PC)
         case makeArray(Int)
         case makePair
@@ -445,7 +516,7 @@ class VM {
 
     var code: [Operation] = []
 
-    var currentCall: Function.Call? {
+    var currentCall: Call? {
         get {currentTask!.currentCall}
         set(v) {currentTask!.currentCall = v} 
     }
@@ -477,24 +548,13 @@ class VM {
             switch op {
             case let .argument(arg):
                 var c = currentCall!
-                
-                for _ in 0..<arg.callOffset {
-                    c = c.parentCall!
-                }
-                
+                for _ in 0..<arg.callOffset { c = c.parentCall! }
                 stack.push(stack[c.stackOffset+arg.index])
                 pc += 1
             case let .branch(elsePc):
-                if stack.pop().toBool {
-                    pc += 1
-                } else {
-                    pc = elsePc
-                }
+                pc += stack.pop().toBool ? pc + 1 : elsePc
             case let .benchmark(pos, endPc):
-                if stack.isEmpty {
-                    throw EvaluateError.missingValue(pos)
-                }
-
+                if stack.isEmpty { throw EvaluateError.missingValue(pos) }
                 let n = stack.pop()
 
                 let t = try ContinuousClock().measure {
@@ -517,6 +577,17 @@ class VM {
                 let actual = stack.last!.type
                 if !actual.equals(expected) { throw EvaluateError.typeMismatch(pos, expected, actual) }
                 pc += 1
+            case let .closure(target):
+                var cs: Stack = []
+                
+                for a in target.closureArguments {
+                    var c = currentCall!
+                    for _ in 0..<a.callOffset { c = c.parentCall! }
+                    cs.push(stack[c.stackOffset+a.index])
+                }
+
+                stack.push(Value(std.functionType, Closure(target, cs)))
+                pc += 1
             case let .goto(targetPc):
                 pc = targetPc
             case let .makeArray(count):
@@ -532,11 +603,7 @@ class VM {
             case .nop:
                 pc += 1
             case let .or(endPc):
-                if stack.pop().toBool {
-                    pc = endPc
-                } else {
-                    pc += 1
-                }
+                pc = stack.pop().toBool ? endPc : pc + 1
             case .popCall:
                 let c = currentCall!
                 currentCall = c.parentCall
@@ -851,8 +918,9 @@ class StandardLibrary: Namespace {
                                      at pos: Position,
                                      inNamespace ns: Namespace,
                                      withArguments args: inout [Form],
-                                     options: inout Set<EmitOption>) throws {
-            vm.emit(.argument(cast(value)))
+                                     options opts: inout Set<EmitOption>) throws {
+            let a = cast(value)
+            vm.emit(.argument(a))
         }
     }
 
@@ -896,7 +964,6 @@ class StandardLibrary: Namespace {
                                      withArguments args: inout [Form],
                                      options opts: inout Set<EmitOption>) throws {
             let f = cast(value)
-            var argOpts: Set<EmitOption> = []
             
             for a in f.arguments {
                 if args.isEmpty {
@@ -927,7 +994,7 @@ class StandardLibrary: Namespace {
                     }
                 }
                 
-                try f.emit(vm, inNamespace: ns, withArguments: &args, options: &argOpts)
+                try f.emit(vm, inNamespace: ns, withArguments: &args, options: &opts)
                 if actual == nil { vm.emit(.checkType(f.position, expected)) }
             }
 
@@ -1109,9 +1176,10 @@ class StandardLibrary: Namespace {
             
             let f = Function(id ?? "lambda", fargs, resultType, startPc: startPc) {
                 (f, vm, pc, stack, pos) throws in
-                vm.currentCall = Function.Call(vm.currentCall, f, at: pos,
-                                               stackOffset: stack.count-fargs.count, returnPc: pc)
-                
+                vm.currentCall = Call(vm.currentCall, f,
+                                      at: pos,
+                                      stackOffset: f.stackOffset(stack),
+                                      returnPc: pc)
                 pc = startPc
             }
 
@@ -1124,6 +1192,7 @@ class StandardLibrary: Namespace {
             for (k, v) in ns {
                 if v.type.equals(std.argumentType) {
                     let a = std.argumentType.cast(v)
+                    
                     fns[k] = Value(std.argumentType,
                                    Argument(callOffset: a.callOffset+1, index: a.index, type: a.type))
                 }
@@ -1133,13 +1202,19 @@ class StandardLibrary: Namespace {
                 let a = fargs[i]
                 fns[a.0] = Value(self.argumentType, Argument(callOffset: 0, index: i, type: a.1))
             }
-            
-            try body.emit(vm, inNamespace: fns, withArguments: &args, options: &opts)
+
+            var bodyOpts: Set<EmitOption> = []
+            try body.emit(vm, inNamespace: fns, withArguments: &args, options: &bodyOpts)
             vm.emit(.popCall)
-            vm.code[skip] = .goto(vm.emitPc)
+            f.endPc = vm.emitPc
+            vm.code[skip] = .goto(f.endPc!)
 
             if id == nil {
-                vm.emit(.push(Value(self.functionType, f)))
+                if f.closureArguments.isEmpty {
+                    vm.emit(.push(Value(self.functionType, f)))
+                } else {
+                    vm.emit(.closure(f))
+                }
             }
         }
         

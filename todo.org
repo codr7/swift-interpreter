@@ -1,17 +1,22 @@
-* add emit option .function(f)
-** use to set name in function macro
-** use to trigger capture of closure arguments
+* use ArgumentIndex struct in Argument
+
+* remove EmitOption
+** modify last op in vm.code in return macro
+
+* add check macro
+** check [3] + 1 2
+
+* add support for ref closures
 
 function foo(x:Int):Function (
   function bar(y:Int):Int 
-    + x y
+    x.+ y
   &bar
 )
 
 call foo 42 [3]
 
-* cache constant stack suffix in call ops
-** benchmark
+---
 
 swift run -c release
 
@@ -33,7 +38,12 @@ function fib2(n:Int a:Int b:Int):Int if n.> 1 return fib2 n.- 1 b a.+ b else if 
 0.679791056 stack arg
 0.542982574 local pc
 
+--
+
 define foo + 1 2
+evaluate + 1 2
+
+--
 
 function foo(x:Int):Int (
   function bar(y:Int):Int
@@ -42,4 +52,11 @@ function foo(x:Int):Int (
 )
 
 foo 3
-45
+
+--
+
+function foo(x:Int):Function
+  function(y:Int):Int 
+    x.+ y
+
+call foo 42 [3]
