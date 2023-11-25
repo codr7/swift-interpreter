@@ -15,9 +15,8 @@ struct Value: CustomStringConvertible {
     func identifierEmit(_ vm: VM,
                         at pos: Position,
                         inNamespace ns: Namespace,
-                        withArguments args: inout [Form],
-                        options opts: inout Set<EmitOption>) throws {
-        try self.type.identifierEmit(self, vm, at: pos, inNamespace: ns, withArguments: &args, options: &opts)
+                        withArguments args: inout [Form]) throws {
+        try self.type.identifierEmit(self, vm, at: pos, inNamespace: ns, withArguments: &args)
     }
 }
 
@@ -33,8 +32,7 @@ protocol ValueType: CustomStringConvertible {
                         _ vm: VM,
                         at: Position,
                         inNamespace: Namespace,
-                        withArguments args: inout [Form],
-                        options: inout Set<EmitOption>) throws
+                        withArguments args: inout [Form]) throws
 
     func safeCast(_ value: Value, at: Position) throws -> V
     func toBool(_ value: Value) -> Bool
@@ -65,8 +63,7 @@ class BasicValueType<V>: ValueType {
                         _ vm: VM,
                         at pos: Position,
                         inNamespace: Namespace,
-                        withArguments args: inout [Form],
-                        options: inout Set<EmitOption>) throws {
+                        withArguments args: inout [Form]) throws {
         args.insert(Literal(pos, value), at: 0)
     }
 
@@ -234,7 +231,7 @@ class Closure: Function {
 }
 
 struct Macro: CustomStringConvertible {
-    typealias Body = (Macro, VM, Position, Namespace, inout [Form], inout Set<EmitOption>) throws -> Void
+    typealias Body = (Macro, VM, Position, Namespace, inout [Form]) throws -> Void
     
     let arity: Int
     let body: Body
@@ -251,13 +248,12 @@ struct Macro: CustomStringConvertible {
     func emit(_ vm: VM,
               at pos: Position,
               inNamespace ns: Namespace,
-              withArguments args: inout [Form],
-              options opts: inout Set<EmitOption>) throws {
+              withArguments args: inout [Form]) throws {
         if args.count < arity {
             throw EmitError.missingArgument(pos)
         }
 
-        try body(self, vm, pos, ns, &args, &opts)
+        try body(self, vm, pos, ns, &args)
     }
 }
 
@@ -313,8 +309,7 @@ protocol Form: CustomStringConvertible {
     func cast<T: Form>(_ type: T.Type) throws -> T
     func emit(_ vm: VM,
               inNamespace: Namespace,
-              withArguments: inout [Form],
-              options: inout Set<EmitOption>) throws
+              withArguments: inout [Form]) throws
 }
 
 class BasicForm {
@@ -347,9 +342,8 @@ class ArrayForm: BasicForm, Form {
 
     func emit(_ vm: VM,
               inNamespace ns: Namespace,
-              withArguments args: inout [Form],
-              options opts: inout Set<EmitOption>) throws {
-        try items.emit(vm, inNamespace: ns, options: &opts)
+              withArguments args: inout [Form]) throws {
+        try items.emit(vm, inNamespace: ns)
         vm.emit(.makeArray(items.count))
     }
 }
@@ -365,10 +359,9 @@ class Identifier: BasicForm, Form {
 
     func emit(_ vm: VM,
               inNamespace ns: Namespace,
-              withArguments args: inout [Form],
-              options opts: inout Set<EmitOption>) throws {
+              withArguments args: inout [Form]) throws {
         if let value = ns[name] {
-            try value.identifierEmit(vm, at: position, inNamespace: ns, withArguments: &args, options: &opts)
+            try value.identifierEmit(vm, at: position, inNamespace: ns, withArguments: &args)
         } else {
             throw EmitError.unknownIdentifier(position, name)
         }
@@ -386,9 +379,8 @@ class List: BasicForm, Form {
 
     func emit(_ vm: VM,
               inNamespace ns: Namespace,
-              withArguments args: inout [Form],
-              options opts: inout Set<EmitOption>) throws {
-        try items.emit(vm, inNamespace: ns, options: &opts)
+              withArguments args: inout [Form]) throws {
+        try items.emit(vm, inNamespace: ns)
     }
 }
 
@@ -403,8 +395,7 @@ class Literal: BasicForm, Form {
 
     func emit(_ vm: VM,
               inNamespace ns: Namespace,
-              withArguments args: inout [Form],
-              options: inout Set<EmitOption>) throws {
+              withArguments args: inout [Form]) throws {
         vm.emit(.push(value))
     }
 }
@@ -423,15 +414,14 @@ class Pair: BasicForm, Form {
 
     func emit(_ vm: VM,
               inNamespace ns: Namespace,
-              withArguments args: inout [Form],
-              options opts: inout Set<EmitOption>) throws {
+              withArguments args: inout [Form]) throws {
         if left is Literal && right is Literal {
-            args.insert(Literal(position, Value(std.pairType, ((left as! Literal).value,
-                                                               (right as! Literal).value))),
+            args.insert(Literal(position, Value(std.pairType,
+                                                ((left as! Literal).value, (right as! Literal).value))),
                         at: 0)
         } else {
-            try left.emit(vm, inNamespace: ns, withArguments: &args, options: &opts)
-            try right.emit(vm, inNamespace: ns, withArguments: &args, options: &opts)
+            try left.emit(vm, inNamespace: ns, withArguments: &args)
+            try right.emit(vm, inNamespace: ns, withArguments: &args)
             vm.emit(.makePair)
         }
     }
@@ -448,8 +438,7 @@ class Reference: BasicForm, Form {
 
     func emit(_ vm: VM,
               inNamespace ns: Namespace,
-              withArguments args: inout [Form],
-              options: inout Set<EmitOption>) throws {
+              withArguments args: inout [Form]) throws {
         let v = ns[id]
 
         if v == nil {
@@ -461,11 +450,11 @@ class Reference: BasicForm, Form {
 }
 
 extension [Form] {
-    func emit(_ vm: VM, inNamespace ns: Namespace, options opts: inout Set<EmitOption>) throws {
+    func emit(_ vm: VM, inNamespace ns: Namespace) throws {
         var fs = self
         
         while fs.count > 0 {
-            try fs.removeFirst().emit(vm, inNamespace: ns, withArguments: &fs, options: &opts)
+            try fs.removeFirst().emit(vm, inNamespace: ns, withArguments: &fs)
         }
     }
 }
@@ -556,7 +545,7 @@ class VM {
                 stack.push(stack[c.stackOffset+arg.value.index])
                 pc += 1
             case let .branch(elsePc):
-                pc += stack.pop().toBool ? pc + 1 : elsePc
+                pc = stack.pop().toBool ? pc + 1 : elsePc
             case let .benchmark(pos, endPc):
                 if stack.isEmpty { throw EvaluateError.missingValue(pos) }
                 let n = stack.pop()
@@ -921,8 +910,7 @@ class StandardLibrary: Namespace {
                                      _ vm: VM,
                                      at pos: Position,
                                      inNamespace ns: Namespace,
-                                     withArguments args: inout [Form],
-                                     options opts: inout Set<EmitOption>) throws {
+                                     withArguments args: inout [Form]) throws {
             let a = cast(value)
             vm.emit(.argument(a))
         }
@@ -965,8 +953,7 @@ class StandardLibrary: Namespace {
                                      _ vm: VM,
                                      at pos: Position,
                                      inNamespace ns: Namespace,
-                                     withArguments args: inout [Form],
-                                     options opts: inout Set<EmitOption>) throws {
+                                     withArguments args: inout [Form]) throws {
             let f = cast(value)
             
             for a in f.arguments {
@@ -998,16 +985,11 @@ class StandardLibrary: Namespace {
                     }
                 }
                 
-                try f.emit(vm, inNamespace: ns, withArguments: &args, options: &opts)
+                try f.emit(vm, inNamespace: ns, withArguments: &args)
                 if actual == nil { vm.emit(.checkType(f.position, expected)) }
             }
 
-            if opts.contains(.tailCall) && f.startPc != nil {
-                opts.remove(.tailCall)
-                vm.emit(.tailCall(pos, f))
-            } else {
-                vm.emit(.call(pos, f))
-            }
+            vm.emit(.call(pos, f))
         }
     }
 
@@ -1030,9 +1012,8 @@ class StandardLibrary: Namespace {
                                      _ vm: VM,
                                      at pos: Position,
                                      inNamespace ns: Namespace,
-                                     withArguments args: inout [Form],
-                                     options opts: inout Set<EmitOption>) throws {
-            try cast(value).emit(vm, at: pos, inNamespace: ns, withArguments: &args, options: &opts)
+                                     withArguments args: inout [Form]) throws {
+            try cast(value).emit(vm, at: pos, inNamespace: ns, withArguments: &args)
         }
     }
 
@@ -1103,20 +1084,19 @@ class StandardLibrary: Namespace {
         self["true"] = Value(boolType, true)
         self["false"] = Value(boolType, false)
         
-        bindMacro("benchmark", 2) {(_, vm, pos, ns, args, opts) throws in
-            var noOpts: Set<EmitOption> = []
-            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: &noOpts)
+        bindMacro("benchmark", 2) {(_, vm, pos, ns, args) throws in
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             let benchmarkPc = vm.emit(.nop)
-            try args.removeFirst().emit(vm, inNamespace: Namespace(ns), withArguments: &args, options: &noOpts)
+            try args.removeFirst().emit(vm, inNamespace: Namespace(ns), withArguments: &args)
             vm.emit(.stop)
             vm.code[benchmarkPc] = .benchmark(pos, vm.emitPc)
         }
         
-        bindMacro("define", 2) {(_, vm, pos, ns, args, opts) throws in
+        bindMacro("define", 2) {(_, vm, pos, ns, args) throws in
             let name = try args.removeFirst().cast(Identifier.self).name
             let gotoPc = vm.emit(.nop)
             let startPc = vm.emitPc
-            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: &opts)
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             vm.emit(.stop)
             vm.code[gotoPc] = .goto(vm.emitPc)
             var stack: Stack = []
@@ -1129,10 +1109,10 @@ class StandardLibrary: Namespace {
             ns[name] = stack.pop()
         }
 
-        bindMacro("evaluate", 1) {(_, vm, pos, ns, args, opts) throws in
+        bindMacro("evaluate", 1) {(_, vm, pos, ns, args) throws in
             let gotoPc = vm.emit(.nop)
             let startPc = vm.emitPc
-            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: &opts)
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             vm.emit(.stop)
             vm.code[gotoPc] = .goto(vm.emitPc)
             var stack: Stack = []
@@ -1143,7 +1123,7 @@ class StandardLibrary: Namespace {
             }
         }
 
-        bindMacro("function", 2) {(_, vm, pos, ns, args, opts) throws in
+        bindMacro("function", 2) {(_, vm, pos, ns, args) throws in
             var id: String?
             
             if args.first! is Identifier {
@@ -1205,8 +1185,7 @@ class StandardLibrary: Namespace {
                 fns[a.0] = Value(self.argumentType, Argument(0, i, a.1))
             }
 
-            var bodyOpts: Set<EmitOption> = []
-            try body.emit(vm, inNamespace: fns, withArguments: &args, options: &bodyOpts)
+            try body.emit(vm, inNamespace: fns, withArguments: &args)
             vm.emit(.popCall)
             f.endPc = vm.emitPc
             vm.code[skip] = .goto(f.endPc!)
@@ -1220,11 +1199,10 @@ class StandardLibrary: Namespace {
             }
         }
         
-        bindMacro("if", 2) {(_, vm, pos, ns, args, opts) throws in
-            var noOpts: Set<EmitOption> = []
-            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: &noOpts)
+        bindMacro("if", 2) {(_, vm, pos, ns, args) throws in
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             let ifPc = vm.emit(.nop)
-            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: &opts)
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             var elsePc = vm.emitPc
             
             if !args.isEmpty {
@@ -1233,7 +1211,7 @@ class StandardLibrary: Namespace {
                         _ = args.removeFirst()
                         let skipPc = vm.emit(.nop)
                         elsePc = vm.emitPc
-                        try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: &opts)
+                        try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
                         vm.code[skipPc] = .goto(vm.emitPc)
                     }
                 }
@@ -1242,29 +1220,37 @@ class StandardLibrary: Namespace {
             vm.code[ifPc] = .branch(elsePc)
         }
         
-        bindMacro("or", 2) {(_, vm, pos, ns, args, opts) throws in
-            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: &opts)
+        bindMacro("or", 2) {(_, vm, pos, ns, args) throws in
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             let or = vm.emit(.nop)
-            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: &opts)
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             vm.code[or] = .or(vm.emitPc)
         }
 
-        bindMacro("return", 1) {(_, vm, pos, ns, args, opts) throws in
-            var valueOpts = opts
-            valueOpts.insert(.tailCall)
-            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: &valueOpts)
-            vm.emit(.popCall)
+        bindMacro("return", 1) {(_, vm, pos, ns, args) throws in
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+
+            switch vm.code.last {
+            case let .call(pos, target):
+                if target.startPc != nil {
+                    vm.code[vm.code.count-1] = .tailCall(pos, target)
+                } else {
+                    fallthrough
+                }
+            default:
+                vm.emit(.popCall)
+                break
+            }
         }
         
-        bindMacro("task", 1) {(_, vm, pos, ns, args, opts) throws in
+        bindMacro("task", 1) {(_, vm, pos, ns, args) throws in
             let task = vm.emit(.nop)
-            var noOpts: Set<EmitOption> = []
-            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args, options: &noOpts)
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             vm.emit(.stop)
             vm.code[task] = .task(vm.emitPc)
         }
 
-        bindMacro("trace", 0) {(_, vm, pos, ns, args, opts) throws in
+        bindMacro("trace", 0) {(_, vm, pos, ns, args) throws in
             vm.trace = !vm.trace
         }
 
@@ -1368,8 +1354,7 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace) throws {
                 var pos = Position("repl")
                 let fs = try readAll(reader, &input, [], &pos)
                 let pc = vm.emitPc
-                var noOpts: Set<EmitOption> = []
-                try fs.emit(vm, inNamespace: ns, options: &noOpts)
+                try fs.emit(vm, inNamespace: ns)
                 vm.emit(.stop)
                 try vm.evaluate(fromPc: pc, stack: &stack)
                 print("\(stack.isEmpty ? "_" : "\(stack.pop())")\n")
