@@ -1387,11 +1387,13 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace, stack: inout St
 let vm = VM()
 var stack: Stack = []
 
-for p in CommandLine.arguments[1...] {
-    let startPc = vm.emitPc
-    try load(vm, readForm, fromPath: p, inNamespace: std)
-    vm.emit(.stop)
-    try vm.evaluate(fromPc: startPc, stack: &stack)
+if CommandLine.arguments.count == 1 {
+    try repl(vm, readForm, inNamespace: std, stack: &stack)
+} else {
+    for p in CommandLine.arguments[1...] {
+        let startPc = vm.emitPc
+        try load(vm, readForm, fromPath: p, inNamespace: std)
+        vm.emit(.stop)
+        try vm.evaluate(fromPc: startPc, stack: &stack)
+    }
 }
-
-try repl(vm, readForm, inNamespace: std, stack: &stack)
