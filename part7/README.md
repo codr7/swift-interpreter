@@ -3,7 +3,7 @@
 In this part, we'll add a macro for benchmarking the interpreter and apply a set of optimizations to improve its performance.
 
 ## Setup
-To try it out; simply download and install [Swift](https://www.swift.org/download/) and run `swift run` from this directory.
+To try it out; simply download and install [Swift](https://www.swift.org/download/) and run `swift run -c release swiftr` from this directory.
 
 ## Benchmarking
 We'll add a new macro that measures the time it takes to evaluate it's argument in a loop.

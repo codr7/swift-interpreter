@@ -1,4 +1,4 @@
-* add check macro from part6
+* add check macro from part5
 ** check [3] + 1 2
 
 * add support for ref closures

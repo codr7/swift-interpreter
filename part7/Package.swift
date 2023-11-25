@@ -3,12 +3,12 @@
 import PackageDescription
 
 let package = Package(
-  name: "swinter",
+  name: "swiftr",
 
   products: [
     .executable(
-      name: "swinter",
-      targets: ["swinter"])
+      name: "swiftr",
+      targets: ["swiftr"])
   ],
 
   dependencies: [
@@ -16,7 +16,7 @@ let package = Package(
   
   targets: [
     .executableTarget(
-      name: "swinter",
+      name: "swiftr",
       dependencies: []),
   ]
 )
