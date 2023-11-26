@@ -25,9 +25,12 @@ struct Value: CustomStringConvertible {
 }
 
 protocol ValueType: CustomStringConvertible {
+    typealias Id = Int
     associatedtype Data
     
+    var id: Id {get}
     var name: String { get }
+
     func cast(_ value: Value) -> Data
     func equals(_ other: any ValueType) -> Bool
     func equals(_ value1: Value, _ value2: Value) -> Bool
@@ -50,6 +53,10 @@ extension ValueType {
         value.data as! Data
     }
 
+    func equals(_ other: any ValueType) -> Bool {
+        other.id == id
+    }
+    
     func identifierEmit(_ value: Value,
                         _ vm: VM,
                         at pos: Position,
@@ -77,12 +84,15 @@ extension ValueType {
     }
 }
 
+var nextTypeId: ValueType.Id = 0
+
 class DataType<T> {
     typealias Data = T
-
-    func equals(_ other: any ValueType) -> Bool {
-        other is DataType<T> && other as! DataType<T> === self
-    }
+    
+    lazy var id: ValueType.Id = {
+        nextTypeId += 1
+        return nextTypeId
+    }()    
 }
 
 enum EmitError: Error {
