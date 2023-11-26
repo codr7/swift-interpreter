@@ -12,9 +12,13 @@ struct Value: CustomStringConvertible {
         self.data = data
     }
 
+    func equals(_ other: Value) -> Bool {
+        type.equals(self, other)
+    }
+    
     func identifierEmit(_ vm: VM, at pos: Position,
                         inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
-        try self.type.identifierEmit(self, vm, at: pos, inNamespace: ns, withArguments: &args)
+        try type.identifierEmit(self, vm, at: pos, inNamespace: ns, withArguments: &args)
     }
 }
 
@@ -25,7 +29,8 @@ protocol ValueType: CustomStringConvertible {
 
     func cast(_ value: Value) -> V
     func equals(_ other: any ValueType) -> Bool
-    
+    func equals(_ value1: Value, _ value2: Value) -> Bool
+
     func identifierEmit(_ value: Value,
                         _ vm: VM,
                         at: Position,
@@ -37,7 +42,7 @@ protocol ValueType: CustomStringConvertible {
     func toString(_ value: Value) -> String
 }
 
-class BasicValueType<V>: ValueType {
+class BasicType<V> {
     let name: String
     var description: String { name }
 
@@ -50,24 +55,21 @@ class BasicValueType<V>: ValueType {
     }
 
     func equals(_ other: any ValueType) -> Bool {
-        if let rhs = other as? BasicValueType<V> {
-            return self === rhs
-        }
-
+        if let rhs = other as? BasicType<V> { return self === rhs }
         return false
     }
 
-    func identifierEmit(_ value: Value, _ vm: VM, at pos: Position, inNamespace: Namespace, withArguments args: inout [Form]) throws {
+    func identifierEmit(_ value: Value,
+                        _ vm: VM,
+                        at pos: Position,
+                        inNamespace: Namespace,
+                        withArguments args: inout [Form]) throws {
         args.insert(Literal(pos, value), at: 0)
     }
 
     func safeCast(_ value: Value, at pos: Position) throws -> V {
         let v = value.data as? V
-
-        if v == nil {
-            throw EvaluateError.typeMismatch(pos, self, value.type)
-        }
-
+        if v == nil { throw EvaluateError.typeMismatch(pos) }
         return v!
     }
     
@@ -87,9 +89,10 @@ enum EmitError: Error {
 }
 
 enum EvaluateError: Error {
-    case arityMismatch(Position, Int, Int)
+    case arityMismatch(Position)
+    case checkFailed(Position, Value, Value)
     case missingValue(Position)
-    case typeMismatch(Position, any ValueType, any ValueType)
+    case typeMismatch(Position)
 }
 
 enum ReadError: Error {
@@ -98,7 +101,7 @@ enum ReadError: Error {
 
 typealias PC = Int
 
-struct Function: CustomStringConvertible {
+class Function: CustomStringConvertible {
     struct Call {
         let returnPc: PC
         let position: Position
@@ -137,7 +140,7 @@ struct Function: CustomStringConvertible {
             let actual  = vm.stack[vm.stack.count - arguments.count + i].type
 
             if !actual.equals(expected) {
-                throw EvaluateError.typeMismatch(pos, expected, actual)
+                throw EvaluateError.typeMismatch(pos)
             }
         }
         
@@ -145,7 +148,7 @@ struct Function: CustomStringConvertible {
     }
 }
 
-struct Macro: CustomStringConvertible {
+class Macro: CustomStringConvertible {
     typealias Body = (Macro, VM, Position, Namespace, inout [Form]) throws -> Void
     
     let arity: Int
@@ -377,6 +380,7 @@ class VM {
     enum Operation {
         case argument(Int)
         case call(Position, Function)
+        case check(Position)
         case goto(PC)
         case makeArray(Int)
         case makePair
@@ -437,6 +441,16 @@ class VM {
             case let .call(pos, target):
                 pc += 1
                 try target.call(self, at: pos)
+            case let .check(pos):
+                if stack.isEmpty { throw EvaluateError.missingValue(pos) }
+                let expected = pop()
+                try evaluate(fromPc: pc+1)
+                if stack.isEmpty { throw EvaluateError.missingValue(pos) }
+                let actual = pop()
+
+                if !actual.equals(expected) {
+                    throw EvaluateError.checkFailed(pos, expected, actual)
+                }
             case let .goto(targetPc):
                 pc = targetPc
             case let .makeArray(count):
@@ -465,6 +479,7 @@ class VM {
                 push(value)
                 pc += 1
             case .stop:
+                pc += 1
                 break loop
             case let .task(endPc):
                 startTask(pc: pc+1)
@@ -763,22 +778,38 @@ func readWhitespace(_ input: inout Input, _ output: inout [Form], _ pos: inout P
 }
 
 class StandardLibrary: Namespace {
-    class ArgumentType: BasicValueType<Int> {
+    class ArgumentType: BasicType<Int>, ValueType {
         init() {
             super.init("Argument")
         }
-        
+
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            return cast(value1) == cast(value2)
+        }
+
         override func identifierEmit(_ value: Value, _ vm: VM,
                                      at pos: Position, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
             vm.emit(.argument(cast(value)))
         }
     }
 
-    class ArrayType: BasicValueType<[Value]> {
+    class ArrayType: BasicType<[Value]>, ValueType {
         init() {
             super.init("Array")
         }
         
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            let a1 = cast(value1)
+            let a2 = cast(value2)
+            if a1.count != a2.count { return false }
+            
+            for i in 0..<a1.count {
+                if !a1[i].equals(a2[i]) { return false }
+            }
+
+            return true
+        }
+
         override func toBool(_ value: Value) -> Bool {
             cast(value).count != 0
         }
@@ -788,11 +819,15 @@ class StandardLibrary: Namespace {
         }
     }
     
-    class FunctionType: BasicValueType<Function> {
+    class FunctionType: BasicType<Function>, ValueType {
         init() {
             super.init("Function")
         }
         
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            return cast(value1) === cast(value2)
+        }
+
         override func identifierEmit(_ value: Value, _ vm: VM,
                                      at pos: Position, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
             let f = cast(value)
@@ -809,32 +844,56 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class IntType: BasicValueType<Int> {
+    class IntType: BasicType<Int>, ValueType {
         init() {
             super.init("Int")
         }
         
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            return cast(value1) == cast(value2)
+        }
+
         override func toBool(_ value: Value) -> Bool {
             cast(value) != 0
         }
     }
 
-    class MacroType: BasicValueType<Macro> {
+    class MacroType: BasicType<Macro>, ValueType {
         init() {
             super.init("Macro")
         }
         
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            return cast(value1) === cast(value2)
+        }
+
         override func identifierEmit(_ value: Value, _ vm: VM,
                                      at pos: Position, inNamespace ns: Namespace, withArguments args: inout [Form]) throws {
             try cast(value).emit(vm, at: pos, inNamespace: ns, withArguments: &args)
         }
     }
 
-    class PairType: BasicValueType<(Value, Value)> {
+    class MetaType: BasicType<any ValueType>, ValueType {
+        init() {
+            super.init("Meta")
+        }
+        
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            return !cast(value1).equals(cast(value2))
+        }
+    }
+    
+    class PairType: BasicType<(Value, Value)>, ValueType {
         init() {
             super.init("Pair")
         }
         
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            let p1 = cast(value1)
+            let p2 = cast(value2)
+            return p1.0.equals(p2.0) && p1.1.equals(p2.1)
+        }
+
         override func toBool(_ value: Value) -> Bool {
             let v = cast(value)
             return v.0.toBool && v.1.toBool
@@ -846,11 +905,15 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class StringType: BasicValueType<String> {
+    class StringType: BasicType<String>, ValueType {
         init() {
             super.init("String")
         }
         
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            return cast(value1) == cast(value2)
+        }
+
         override func toBool(_ value: Value) -> Bool {
             cast(value).count != 0
         }
@@ -865,7 +928,7 @@ class StandardLibrary: Namespace {
     let functionType = FunctionType()
     let intType = IntType()
     let macroType = MacroType()
-    let metaType = BasicValueType<any ValueType>("Meta")
+    let metaType = MetaType()
     let pairType = PairType()
     let stringType = StringType()
 
@@ -880,6 +943,13 @@ class StandardLibrary: Namespace {
         self["Pair"] = Value(metaType, pairType)
         self["String"] = Value(metaType, stringType)
 
+        bindMacro("check", 2) {(_, vm, pos, ns, args) throws in
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+            vm.emit(.check(pos))
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+            vm.emit(.stop)
+        }
+        
         bindMacro("function", 2) {(_, vm, pos, ns, args) throws in
             var id: String?
             if args.first! is Identifier { id = try args.removeFirst().cast(Identifier.self).name }
@@ -947,7 +1017,7 @@ class StandardLibrary: Namespace {
             let f = self.functionType.cast(vm.pop())
 
             if args.count != f.arguments.count {
-                throw EvaluateError.arityMismatch(pos, f.arguments.count, args.count)
+                throw EvaluateError.arityMismatch(pos)
             }
 
             for i in 0..<f.arguments.count {
@@ -955,7 +1025,7 @@ class StandardLibrary: Namespace {
                 let actual  = args[i].type
                 
                 if !actual.equals(expected) {
-                    throw EvaluateError.typeMismatch(pos, expected, actual)
+                    throw EvaluateError.typeMismatch(pos)
                 }
             }
 

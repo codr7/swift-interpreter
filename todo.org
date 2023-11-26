@@ -1,6 +1,11 @@
-* add check macro from part5
-** check [3] + 1 2
+* make types equatable
 
+* finish check macro
+** port to part7
+** check 4 + 1 2
+** commit
+
+* inc pc in stop op, part1-4
 * add support for ref closures
 
 function foo(x:Int):Function (

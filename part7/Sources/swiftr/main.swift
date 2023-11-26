@@ -7,9 +7,13 @@ struct Value: CustomStringConvertible {
     var description: String { type.toString(self) }
     var toBool: Bool { type.toBool(self) }
 
-    init(_ type: any ValueType, _ data: Any) {
+    init<T, D>(_ type: T, _ data: D) where T: DataType<D>, T: ValueType {
         self.type = type
         self.data = data
+    }
+
+    func equals(_ other: Value) -> Bool {
+        type.equals(self, other)
     }
 
     func identifierEmit(_ vm: VM,
@@ -21,42 +25,29 @@ struct Value: CustomStringConvertible {
 }
 
 protocol ValueType: CustomStringConvertible {
-    associatedtype V
+    associatedtype Data
     
     var name: String { get }
-
-    func cast(_ value: Value) -> V
+    func cast(_ value: Value) -> Data
     func equals(_ other: any ValueType) -> Bool
-    
+    func equals(_ value1: Value, _ value2: Value) -> Bool
+
     func identifierEmit(_ value: Value,
                         _ vm: VM,
                         at: Position,
                         inNamespace: Namespace,
                         withArguments args: inout [Form]) throws
 
-    func safeCast(_ value: Value, at: Position) throws -> V
+    func safeCast(_ value: Value, at: Position) throws -> Data
     func toBool(_ value: Value) -> Bool
     func toString(_ value: Value) -> String
 }
 
-class BasicValueType<V>: ValueType {
-    let name: String
+extension ValueType {
     var description: String { name }
 
-    init(_ name: String) {
-        self.name = name
-    }
-
-    func cast(_ value: Value) -> V {
-        value.data as! V
-    }
-
-    func equals(_ other: any ValueType) -> Bool {
-        if let rhs = other as? BasicValueType<V> {
-            return self === rhs
-        }
-
-        return false
+    func cast(_ value: Value) -> Data {
+        value.data as! Data
     }
 
     func identifierEmit(_ value: Value,
@@ -67,11 +58,11 @@ class BasicValueType<V>: ValueType {
         args.insert(Literal(pos, value), at: 0)
     }
 
-    func safeCast(_ value: Value, at pos: Position) throws -> V {
-        let v = value.data as? V
+    func safeCast(_ value: Value, at pos: Position) throws -> Data {
+        let v = value.data as? Data
 
         if v == nil {
-            throw EvaluateError.typeMismatch(pos, self, value.type)
+            throw EvaluateError.typeMismatch(pos)
         }
 
         return v!
@@ -86,17 +77,25 @@ class BasicValueType<V>: ValueType {
     }
 }
 
+class DataType<T> {
+    typealias Data = T
+
+    func equals(_ other: any ValueType) -> Bool {
+        other is DataType<T> && other as! DataType<T> === self
+    }
+}
+
 enum EmitError: Error {
     case invalidSyntax(Position)
     case missingArgument(Position)
-    case typeMismatch(Position, any ValueType, any ValueType)
+    case typeMismatch(Position)
     case unknownIdentifier(Position, String)
 }
 
 enum EvaluateError: Error {
     case arityMismatch(Position, Int, Int)
     case missingValue(Position)
-    case typeMismatch(Position, any ValueType, any ValueType)
+    case typeMismatch(Position)
 }
 
 enum ReadError: Error {
@@ -105,7 +104,11 @@ enum ReadError: Error {
 
 typealias PC = Int
 
-struct Argument {
+struct Argument: Equatable {
+    static func ==(_ leftValue: Argument, _ rightValue: Argument) -> Bool {
+        leftValue.type.equals(rightValue.type) && leftValue.value == rightValue.value
+    }
+    
     struct Value: Equatable {
         let callOffset: Int
         let index: Int
@@ -230,7 +233,7 @@ class Closure: Function {
     }
 }
 
-struct Macro: CustomStringConvertible {
+class Macro: CustomStringConvertible {
     typealias Body = (Macro, VM, Position, Namespace, inout [Form]) throws -> Void
     
     let arity: Int
@@ -401,28 +404,29 @@ class Literal: BasicForm, Form {
 }
 
 class Pair: BasicForm, Form {
-    let left: Form
-    let right: Form
+    let leftValue: Form
+    let rightValue: Form
 
-    override var description: String { "\(left):\(right)" }
+    override var description: String { "\(leftValue):\(rightValue)" }
 
-    init(_ pos: Position, _ left: Form, _ right: Form) {
-        self.left = left
-        self.right = right
+    init(_ pos: Position, _ leftValue: Form, _ rightValue: Form) {
+        self.leftValue = leftValue
+        self.rightValue = rightValue
         super.init(pos)
     }
 
     func emit(_ vm: VM,
               inNamespace ns: Namespace,
               withArguments args: inout [Form]) throws {
-        if left is Literal && right is Literal {
+        if leftValue is Literal && rightValue is Literal {
             args.insert(Literal(position, Value(std.pairType,
-                                                ((left as! Literal).value, (right as! Literal).value))),
+                                                ((leftValue as! Literal).value,
+                                                 (rightValue as! Literal).value))),
                         at: 0)
         } else {
-            try left.emit(vm, inNamespace: ns, withArguments: &args)
-            try right.emit(vm, inNamespace: ns, withArguments: &args)
-            vm.emit(.makePair)
+            try leftValue.emit(vm, inNamespace: ns, withArguments: &args)
+            try rightValue.emit(vm, inNamespace: ns, withArguments: &args)
+            vm.emit(.makePair(position))
         }
     }
 }
@@ -494,9 +498,10 @@ class VM {
         case call(Position, Function)
         case checkType(Position, any ValueType)
         case closure(Function)
+        case equals(Position)
         case goto(PC)
         case makeArray(Int)
-        case makePair
+        case makePair(Position)
         case nop
         case or(PC)
         case popCall
@@ -568,7 +573,7 @@ class VM {
                 try target.call(self, &pc, &stack, at: pos)
             case let .checkType(pos, expected):
                 let actual = stack.last!.type
-                if !actual.equals(expected) { throw EvaluateError.typeMismatch(pos, expected, actual) }
+                if !actual.equals(expected) { throw EvaluateError.typeMismatch(pos) }
                 pc += 1
             case let .closure(target):
                 var cs: Stack = []
@@ -581,6 +586,12 @@ class VM {
 
                 stack.push(Value(std.functionType, Closure(target, cs)))
                 pc += 1
+            case let .equals(pos):
+                if stack.count < 2 { throw EvaluateError.missingValue(pos) }
+                let rightValue = stack.pop()
+                let leftValue = stack.pop()
+                stack.push(Value(std.boolType, leftValue.equals(rightValue)))
+                pc += 1
             case let .goto(targetPc):
                 pc = targetPc
             case let .makeArray(count):
@@ -588,10 +599,11 @@ class VM {
                 stack.removeLast(count)
                 stack.push(Value(std.arrayType, Array(items)))
                 pc += 1
-            case .makePair:
-                let right = stack.pop()
-                let left = stack.pop()
-                stack.push(Value(std.pairType, (left, right)))
+            case let .makePair(pos):
+                if stack.count < 2 { throw EvaluateError.missingValue(pos) }
+                let rightValue = stack.pop()
+                let leftValue = stack.pop()
+                stack.push(Value(std.pairType, (leftValue, rightValue)))
                 pc += 1
             case .nop:
                 pc += 1
@@ -830,9 +842,9 @@ func readPair(_ input: inout Input, _ output: inout [Form], _ pos: inout Positio
         throw ReadError.invalidSyntax(pos)
     }
     
-    let right = output.removeLast()
-    let left = output.removeLast()
-    output.append(Pair(fpos, left, right))
+    let rightValue = output.removeLast()
+    let leftValue = output.removeLast()
+    output.append(Pair(fpos, leftValue, rightValue))
     return true
 }
 
@@ -901,59 +913,75 @@ func readWhitespace(_ input: inout Input, _ output: inout [Form], _ pos: inout P
 }
 
 class StandardLibrary: Namespace {
-    class ArgumentType: BasicValueType<Argument> {
-        init() {
-            super.init("Argument")
+    class ArgumentType: DataType<Argument>, ValueType {
+        var name: String { "Argument" }
+
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            return cast(value1) == cast(value2)
         }
-        
-        override func identifierEmit(_ value: Value,
-                                     _ vm: VM,
-                                     at pos: Position,
-                                     inNamespace ns: Namespace,
-                                     withArguments args: inout [Form]) throws {
+
+        func identifierEmit(_ value: Value,
+                            _ vm: VM,
+                            at pos: Position,
+                            inNamespace ns: Namespace,
+                            withArguments args: inout [Form]) throws {
             let a = cast(value)
             vm.emit(.argument(a))
         }
     }
 
-    class ArrayType: BasicValueType<[Value]> {
-        init() {
-            super.init("Array")
-        }
+    class ArrayType: DataType<[Value]>, ValueType {
+        var name: String { "Array" }
         
-        override func toBool(_ value: Value) -> Bool {
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            let a1 = cast(value1)
+            let a2 = cast(value2)
+            if a1.count != a2.count { return false }
+            
+            for i in 0..<a1.count {
+                if !a1[i].equals(a2[i]) { return false }
+            }
+            
+            return true
+        }
+
+        func toBool(_ value: Value) -> Bool {
             cast(value).count != 0
         }
 
-        override func toString(_ value: Value) -> String {
+        func toString(_ value: Value) -> String {
             "[\(cast(value).map({"\($0)"}).joined(separator: " "))]"
         }
     }
 
-    class BoolType: BasicValueType<Bool> {
-        init() {
-            super.init("Bool")
-        }
+    class BoolType: DataType<Bool>, ValueType {
+        var name: String { "Bool" }
         
-        override func toBool(_ value: Value) -> Bool {
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            return cast(value1) == cast(value2)
+        }
+
+        func toBool(_ value: Value) -> Bool {
             cast(value)
         }
 
-        override func toString(_ value: Value) -> String {
+        func toString(_ value: Value) -> String {
             "\(cast(value))"
         }
     }
     
-    class FunctionType: BasicValueType<Function> {
-        init() {
-            super.init("Function")
-        }
+    class FunctionType: DataType<Function>, ValueType {
+        var name: String { "Function" }
         
-        override func identifierEmit(_ value: Value,
-                                     _ vm: VM,
-                                     at pos: Position,
-                                     inNamespace ns: Namespace,
-                                     withArguments args: inout [Form]) throws {
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            return cast(value1) === cast(value2)
+        }
+
+        func identifierEmit(_ value: Value,
+                            _ vm: VM,
+                            at pos: Position,
+                            inNamespace ns: Namespace,
+                            withArguments args: inout [Form]) throws {
             let f = cast(value)
             
             for a in f.arguments {
@@ -979,10 +1007,8 @@ class StandardLibrary: Namespace {
                     }
                 }
 
-                if actual != nil {
-                    if !actual!.equals(expected) {
-                        throw EmitError.typeMismatch(f.position, expected, actual!)
-                    }
+                if actual != nil && !actual!.equals(expected) {
+                    throw EmitError.typeMismatch(f.position)
                 }
                 
                 try f.emit(vm, inNamespace: ns, withArguments: &args)
@@ -993,66 +1019,86 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class IntType: BasicValueType<Int> {
-        init() {
-            super.init("Int")
-        }
+    class IntType: DataType<Int>, ValueType {
+        var name: String { "Int" }
         
-        override func toBool(_ value: Value) -> Bool {
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            return cast(value1) == cast(value2)
+        }
+
+        func toBool(_ value: Value) -> Bool {
             cast(value) != 0
         }
     }
 
-    class MacroType: BasicValueType<Macro> {
-        init() {
-            super.init("Macro")
-        }
+    class MacroType: DataType<Macro>, ValueType {
+        var name: String { "Macro" }
         
-        override func identifierEmit(_ value: Value,
-                                     _ vm: VM,
-                                     at pos: Position,
-                                     inNamespace ns: Namespace,
-                                     withArguments args: inout [Form]) throws {
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            return cast(value1) === cast(value2)
+        }
+
+        func identifierEmit(_ value: Value,
+                            _ vm: VM,
+                            at pos: Position,
+                            inNamespace ns: Namespace,
+                            withArguments args: inout [Form]) throws {
             try cast(value).emit(vm, at: pos, inNamespace: ns, withArguments: &args)
         }
     }
 
-    class PairType: BasicValueType<(Value, Value)> {
-        init() {
-            super.init("Pair")
+    class MetaType: DataType<any ValueType>, ValueType {
+        var name: String { "Meta" }
+
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            return !cast(value1).equals(cast(value2))
         }
+    }
+
+    class PairType: DataType<(Value, Value)>, ValueType {
+        var name: String { "Pair" }
         
-        override func toBool(_ value: Value) -> Bool {
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            let p1 = cast(value1)
+            let p2 = cast(value2)
+            return p1.0.equals(p2.0) && p1.1.equals(p2.1)
+        }
+
+        func toBool(_ value: Value) -> Bool {
             let v = cast(value)
             return v.0.toBool && v.1.toBool
         }
 
-        override func toString(_ value: Value) -> String {
+        func toString(_ value: Value) -> String {
             let p = cast(value)
             return "\(p.0):\(p.1)"
         }
     }
 
-    class StringType: BasicValueType<String> {
-        init() {
-            super.init("String")
-        }
+    class StringType: DataType<String>, ValueType {
+        var name: String { "String" }
         
-        override func toBool(_ value: Value) -> Bool {
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            return cast(value1) == cast(value2)
+        }
+
+        func toBool(_ value: Value) -> Bool {
             cast(value).count != 0
         }
 
-        override func toString(_ value: Value) -> String {
+        func toString(_ value: Value) -> String {
             "\"\(cast(value))\""
         }
     }
 
-    class TimeType: BasicValueType<Duration> {
-        init() {
-            super.init("Time")
-        }
+    class TimeType: DataType<Duration>, ValueType {
+        var name: String { "Time" }
         
-        override func toBool(_ value: Value) -> Bool {
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            return cast(value1) == cast(value2)
+        }
+
+        func toBool(_ value: Value) -> Bool {
             cast(value) != Duration.zero
         }
     }
@@ -1063,14 +1109,14 @@ class StandardLibrary: Namespace {
     let functionType = FunctionType()
     let intType = IntType()
     let macroType = MacroType()
-    let metaType = BasicValueType<any ValueType>("Meta")
+    let metaType = MetaType()
     let pairType = PairType()
     let stringType = StringType()
     let timeType = TimeType()
 
     init() {
         super.init()
-    
+        
         self["Array"] = Value(metaType, arrayType)
         self["Bool"] = Value(metaType, boolType)
         self["Function"] = Value(metaType, functionType)
@@ -1109,6 +1155,12 @@ class StandardLibrary: Namespace {
             ns[name] = stack.pop()
         }
 
+        bindMacro("=", 2) {(_, vm, pos, ns, args) throws in
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+            vm.emit(.equals(pos))
+        }
+
         bindMacro("evaluate", 1) {(_, vm, pos, ns, args) throws in
             let gotoPc = vm.emit(.nop)
             let startPc = vm.emitPc
@@ -1135,20 +1187,20 @@ class StandardLibrary: Namespace {
             
             if argsForm is Pair {
                 let p = argsForm as! Pair
-                let tid = try p.right.cast(Identifier.self).name
+                let tid = try p.rightValue.cast(Identifier.self).name
                 let t = ns[tid]
                 resultType = try self.metaType.safeCast(t!, at: pos)
-                argsForm = p.left
+                argsForm = p.leftValue
             }
             
             let fargs = try argsForm.cast(List.self).items.map {(it) in
                 let p = try it.cast(Pair.self)
-                let n = try p.left.cast(Identifier.self).name
-                let tid = try p.right.cast(Identifier.self).name
+                let n = try p.leftValue.cast(Identifier.self).name
+                let tid = try p.rightValue.cast(Identifier.self).name
                 let t = ns[tid]
 
                 if t == nil {
-                    throw EmitError.unknownIdentifier(p.right.position, tid)
+                    throw EmitError.unknownIdentifier(p.rightValue.position, tid)
                 }
                 
                 return try (n, self.metaType.safeCast(t!, at: pos))
@@ -1253,13 +1305,7 @@ class StandardLibrary: Namespace {
         bindMacro("trace", 0) {(_, vm, pos, ns, args) throws in
             vm.trace = !vm.trace
         }
-
-        bindFunction("=", [("left", intType), ("right", intType)], boolType) {(_, vm, pc, stack, pos) throws in
-            let r = self.intType.cast(stack.pop())
-            let l = self.intType.cast(stack.pop())
-            stack.push(Value(self.boolType, l == r))
-        }
-
+        
         bindFunction("<", [("left", intType), ("right", intType)], boolType) {(_, vm, pc, stack, pos) throws in
             let r = self.intType.cast(stack.pop())
             let l = self.intType.cast(stack.pop())
@@ -1297,10 +1343,7 @@ class StandardLibrary: Namespace {
             for i in 0..<f.arguments.count {
                 let expected = f.arguments[i].1
                 let actual  = args[i].type
-                
-                if !actual.equals(expected) {
-                    throw EvaluateError.typeMismatch(pos, expected, actual)
-                }
+                if !actual.equals(expected) { throw EvaluateError.typeMismatch(pos) }
             }
 
             stack.append(contentsOf: args)
