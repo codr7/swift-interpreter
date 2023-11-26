@@ -92,7 +92,7 @@ class DataType<T> {
     lazy var id: ValueType.Id = {
         nextTypeId += 1
         return nextTypeId
-    }()    
+    }()
 }
 
 enum EmitError: Error {
