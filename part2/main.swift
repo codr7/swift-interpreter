@@ -101,6 +101,7 @@ class VM {
                 push(value)
                 pc += 1
             case .stop:
+                pc += 1
                 break loop
             case .trace:
                 pc += 1

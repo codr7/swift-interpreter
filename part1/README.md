@@ -15,7 +15,7 @@ Any kind of code we want to run, regardless of syntax; will eventually be reduce
 The reason there's a separate case for stopping is to avoid having to check in the evaluation loop,
 which needs to be as fast as possible.
 
-```
+```swift
 typealias PC = Int
 typealias Stack = [Value]
 
@@ -47,6 +47,7 @@ class VM {
                 stack.append(v)
                 pc += 1
             case .stop:
+	        pc += 1
                 break loop
             }
         }
@@ -65,7 +66,7 @@ class VM {
 ## Types and values
 We'll use structs to represent values, every value has a type.
 
-```
+```swift
 struct Value: CustomStringConvertible {
     let data: Any
     let type: ValueType
@@ -81,7 +82,7 @@ struct Value: CustomStringConvertible {
 
 Types are used to specialize behavior behavior for certain kinds of values.
 
-```
+```swift
 class ValueType: CustomStringConvertible {
     let name: String
     var description: String { name }
@@ -103,7 +104,7 @@ Primitive functions are implemented in Swift, while user defined functions are i
 <br/>
 We'll only deal with primitives for now.
 
-```
+```swift
 struct Function: CustomStringConvertible {
     typealias Body = (Function, VM) throws -> Void
     
@@ -126,7 +127,7 @@ struct Function: CustomStringConvertible {
 ## Standard library
 The humble beginnings of a standard library, an integer type and a function to perform addition.
 
-```
+```swift
 let intType = ValueType("Int")
 
 let addFunction = Function("+") {(_, vm) throws in
@@ -139,7 +140,7 @@ let addFunction = Function("+") {(_, vm) throws in
 ## Showtime
 This prints 10, which is result of adding 6 to 4.
 
-```
+```swift
 let vm = VM()
 vm.emit(.push(Value(intType, 6)))
 vm.emit(.push(Value(intType, 4)))

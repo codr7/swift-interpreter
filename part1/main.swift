@@ -72,6 +72,7 @@ class VM {
                 stack.append(v)
                 pc += 1
             case .stop:
+                pc += 1
                 break loop
             }
         }
