@@ -1,12 +1,24 @@
-* finish check macro
-** port to part7
-** add tests from todo
-*** use separate ns in benchmark body
+* debug missing argument in check/evaluate case
+** works with parens around expr
 
-* inc pc in stop op, part1-4
+* debug left over stack values in closure
+
+* commit tests
+
+* rename DataType to BasicType
+
+* convert = back to function
+** add ValueType.isa()
+*** add BasicType.parentTypes
+** add is? nacro
+
+* add UserFunction subclass
+** move pcs
+** init with form
+** add emit func
 
 * fib3
-** add HashMap type from part 6
+** add HashMap type
 ** add ValueType.hash func
 ** add get-set function
 ** add python benchmark
@@ -39,25 +51,3 @@ benchmark 10000 fib2 70 0 1
 function fib3(n:Int lookup:HashMap):Int
   get-set lookup n if n.< 2 n else (fib3 n.- 1 lookup).+ fib3 n.- 2 lookup 
 benchmark 100 fib3 20 {}
-
---
-
-define foo + 1 2
-evaluate + 1 2
-
---
-
-function foo(x:Int):Int (
-  function bar(y:Int):Int
-    + x y
-  bar 42
-)
-foo 3
-
---
-
-function foo(x:Int):Function
-  function(y:Int):Int 
-    x.+ y
-
-call foo 42 [3]

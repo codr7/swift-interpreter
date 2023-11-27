@@ -104,6 +104,7 @@ enum EmitError: Error {
 
 enum EvaluateError: Error {
     case arityMismatch(Position)
+    case checkFailed(Position, Value, Value)
     case missingValue(Position)
     case typeMismatch(Position)
 }
@@ -506,6 +507,7 @@ class VM {
         case benchmark(Position, PC)
         case branch(PC)
         case call(Position, Function)
+        case check(Position)
         case checkType(Position, any ValueType)
         case closure(Function)
         case equals(Position)
@@ -581,6 +583,12 @@ class VM {
             case let .call(pos, target):
                 pc += 1
                 try target.call(self, &pc, &stack, at: pos)
+            case let .check(pos):
+                if stack.count < 2 { throw EvaluateError.missingValue(pos) }
+                let actual = stack.pop()
+                let expected = stack.pop()
+                if !actual.equals(expected) { throw EvaluateError.checkFailed(pos, expected, actual) }
+                pc += 1
             case let .checkType(pos, expected):
                 let actual = stack.last!.type
                 if !actual.equals(expected) { throw EvaluateError.typeMismatch(pos) }
@@ -637,6 +645,7 @@ class VM {
                     pc += 1
                     try target.call(self, &pc, &stack, at: pos)
                 } else {
+                    stack.removeSubrange(c!.stackOffset..<c!.stackOffset+c!.target.arguments.count)
                     c!.target = target
                     c!.position = pos
                     c!.stackOffset = stack.count - target.arguments.count
@@ -1171,6 +1180,13 @@ class StandardLibrary: Namespace {
             vm.emit(.equals(pos))
         }
 
+        bindMacro("check", 2) {(_, vm, pos, ns, args) throws in
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+            let bodyNs = Namespace(ns)
+            try args.removeFirst().emit(vm, inNamespace: bodyNs, withArguments: &args)
+            vm.emit(.check(pos))
+        }
+
         bindMacro("evaluate", 1) {(_, vm, pos, ns, args) throws in
             let gotoPc = vm.emit(.nop)
             let startPc = vm.emitPc
@@ -1179,10 +1195,7 @@ class StandardLibrary: Namespace {
             vm.code[gotoPc] = .goto(vm.emitPc)
             var stack: Stack = []
             try vm.evaluate(fromPc: startPc, stack: &stack)
-
-            for v in stack {
-                args.insert(Literal(pos, v), at: 0)
-            }
+            for v in stack { vm.emit(.push(v)) }
         }
 
         bindMacro("function", 2) {(_, vm, pos, ns, args) throws in
