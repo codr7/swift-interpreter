@@ -76,7 +76,7 @@ extension ValueType {
 
     func safeCast(_ value: Value, at pos: Position) throws -> Data {
         let v = value.data as? Data
-        if v == nil { throw EvaluateError.typeMismatch(pos) }
+        if v == nil { throw EvaluateError.typeMismatch(pos, self, value.type) }
         return v!
     }
 
@@ -109,7 +109,7 @@ class BasicType<T> {
 enum EmitError: Error {
     case invalidSyntax(Position)
     case missingArgument(Position)
-    case typeMismatch(Position)
+    case typeMismatch(Position, any ValueType, any ValueType)
     case unknownIdentifier(Position, String)
 }
 
@@ -117,7 +117,7 @@ enum EvaluateError: Error {
     case arityMismatch(Position)
     case checkFailed(Position, Value, Value)
     case missingValue(Position)
-    case typeMismatch(Position)
+    case typeMismatch(Position, any ValueType, any ValueType)
 }
 
 enum ReadError: Error {
@@ -629,7 +629,9 @@ class VM {
                 pc += 1
             case let .checkType(pos, expected):
                 let actual = stack.last!.type
-                if !actual.hierarchy.contains(expected.id) { throw EvaluateError.typeMismatch(pos) }
+                if !actual.hierarchy.contains(expected.id) {
+                    throw EvaluateError.typeMismatch(pos, expected, actual)
+                }
                 pc += 1
             case let .closure(target):
                 var cs: [Value] = []
@@ -1106,7 +1108,7 @@ class StandardLibrary: Namespace {
                 }
 
                 if actual != nil && !actual!.hierarchy.contains(expected.id) {
-                    throw EmitError.typeMismatch(f.position)
+                    throw EmitError.typeMismatch(f.position, expected, actual!)
                 }
                 
                 try f.emit(vm, inNamespace: ns, withArguments: &args)
@@ -1529,7 +1531,10 @@ class StandardLibrary: Namespace {
             for i in 0..<f.arguments.count {
                 let expected = f.arguments[i].1
                 let actual  = args[i].type
-                if !actual.hierarchy.contains(expected.id) { throw EvaluateError.typeMismatch(pos) }
+                
+                if !actual.hierarchy.contains(expected.id) {
+                    throw EvaluateError.typeMismatch(pos, expected, actual)
+                }
             }
 
             stack.append(contentsOf: args)
