@@ -1097,12 +1097,12 @@ class StandardLibrary: Namespace {
                     actual = (f as! Literal).value.type
                 } else if f is Identifier {
                     if let v = ns[(f as! Identifier).name] {
-                        if v.type.equals(std.argumentType) {
-                            actual = std.argumentType.cast(v).type
+                        actual = if v.type.equals(std.argumentType) {
+                            std.argumentType.cast(v).type
                         } else if v.type.equals(std.functionType) {
-                            actual = std.functionType.cast(v).resultType
+                             std.functionType.cast(v).resultType
                         } else {
-                            actual = v.type
+                            v.type
                         }
                     }
                 }
