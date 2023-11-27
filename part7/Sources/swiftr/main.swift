@@ -24,11 +24,13 @@ struct Value: CustomStringConvertible {
     }
 }
 
+typealias TypeId = Int
+var nextTypeId: TypeId = 0
+
 protocol ValueType: CustomStringConvertible {
-    typealias Id = Int
     associatedtype Data
     
-    var id: Id {get}
+    var id: TypeId {get}
     var name: String { get }
 
     func cast(_ value: Value) -> Data
@@ -84,12 +86,10 @@ extension ValueType {
     }
 }
 
-var nextTypeId: ValueType.Id = 0
-
 class BasicType<T> {
     typealias Data = T
     
-    lazy var id: ValueType.Id = {
+    lazy var id: TypeId = {
         nextTypeId += 1
         return nextTypeId
     }()

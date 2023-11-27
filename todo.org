@@ -1,6 +1,6 @@
 * convert = back to function
 ** add ValueType.isa()
-*** add BasicType.parentTypes
+*** add BasicType.parentTypes Set<TypeId>
 ** add is? nacro
 
 * add UserFunction subclass
