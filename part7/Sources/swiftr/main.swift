@@ -7,7 +7,7 @@ struct Value: CustomStringConvertible {
     var description: String { type.toString(self) }
     var toBool: Bool { type.toBool(self) }
 
-    init<T, D>(_ type: T, _ data: D) where T: DataType<D>, T: ValueType {
+    init<T, D>(_ type: T, _ data: D) where T: BasicType<D>, T: ValueType {
         self.type = type
         self.data = data
     }
@@ -86,7 +86,7 @@ extension ValueType {
 
 var nextTypeId: ValueType.Id = 0
 
-class DataType<T> {
+class BasicType<T> {
     typealias Data = T
     
     lazy var id: ValueType.Id = {
@@ -143,15 +143,15 @@ class Call {
     let parentCall: Call?
     let returnPc: PC
     
+    var arguments: [Value]
     var position: Position
-    var stackOffset: Int
     var target: Function
     
-    init(_ parentCall: Call?, _ target: Function, at pos: Position, stackOffset: Int, returnPc: PC) {
+    init(_ parentCall: Call?, _ target: Function, _ arguments: [Value], at pos: Position, returnPc: PC) {
         self.parentCall = parentCall
         self.target = target
+        self.arguments = arguments
         self.position = pos
-        self.stackOffset = stackOffset
         self.returnPc = returnPc
     }
 }
@@ -165,6 +165,8 @@ class Function: CustomStringConvertible {
     let resultType: (any ValueType)?
     let startPc: PC?
     var endPc: PC?
+
+    var arity: Int { arguments.count }
     
     lazy var closureArguments: [Argument.Value] = {
         var result: [Argument.Value] = []
@@ -220,7 +222,8 @@ class Function: CustomStringConvertible {
 
 class Closure: Function {
     let stack: Stack
-    
+    override var arity: Int { arguments.count + closureArguments.count }
+
     init(_ target: Function, _ stack: Stack) {
         self.stack = stack
 
@@ -484,6 +487,12 @@ extension Stack {
     mutating func push(_ value: Value) {
         append(value)
     }
+
+    mutating func cut(_ n: Int) -> Stack {
+        let result = suffix(n)
+        removeLast(n)
+        return Stack(result)
+    }
 }
 
 class Task {
@@ -559,7 +568,7 @@ class VM {
             case let .argument(arg):
                 var c = currentCall!
                 for _ in 0..<arg.value.callOffset { c = c.parentCall! }
-                stack.push(stack[c.stackOffset+arg.value.index])
+                stack.push(c.arguments[arg.value.index])
                 pc += 1
             case let .branch(elsePc):
                 pc = stack.pop().toBool ? pc + 1 : elsePc
@@ -599,7 +608,7 @@ class VM {
                 for a in target.closureArguments {
                     var c = currentCall!
                     for _ in 0..<a.callOffset { c = c.parentCall! }
-                    cs.push(stack[c.stackOffset+a.index])
+                    cs.push(c.arguments[a.index])
                 }
 
                 stack.push(Value(std.functionType, Closure(target, cs)))
@@ -630,7 +639,6 @@ class VM {
             case .popCall:
                 let c = currentCall!
                 currentCall = c.parentCall
-                stack.removeSubrange(c.stackOffset..<c.stackOffset+c.target.arguments.count)
                 pc = c.returnPc
             case let .push(value):
                 stack.push(value)
@@ -645,10 +653,9 @@ class VM {
                     pc += 1
                     try target.call(self, &pc, &stack, at: pos)
                 } else {
-                    stack.removeSubrange(c!.stackOffset..<c!.stackOffset+c!.target.arguments.count)
                     c!.target = target
+                    c!.arguments = stack.cut(target.arity)
                     c!.position = pos
-                    c!.stackOffset = stack.count - target.arguments.count
                     pc = target.startPc!
                 }
             case let .task(endPc):
@@ -932,7 +939,7 @@ func readWhitespace(_ input: inout Input, _ output: inout [Form], _ pos: inout P
 }
 
 class StandardLibrary: Namespace {
-    class ArgumentType: DataType<Argument>, ValueType {
+    class ArgumentType: BasicType<Argument>, ValueType {
         var name: String { "Argument" }
 
         func equals(_ value1: Value, _ value2: Value) -> Bool {
@@ -949,7 +956,7 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class ArrayType: DataType<[Value]>, ValueType {
+    class ArrayType: BasicType<[Value]>, ValueType {
         var name: String { "Array" }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
@@ -973,7 +980,7 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class BoolType: DataType<Bool>, ValueType {
+    class BoolType: BasicType<Bool>, ValueType {
         var name: String { "Bool" }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
@@ -989,7 +996,7 @@ class StandardLibrary: Namespace {
         }
     }
     
-    class FunctionType: DataType<Function>, ValueType {
+    class FunctionType: BasicType<Function>, ValueType {
         var name: String { "Function" }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
@@ -1038,7 +1045,7 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class IntType: DataType<Int>, ValueType {
+    class IntType: BasicType<Int>, ValueType {
         var name: String { "Int" }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
@@ -1050,7 +1057,7 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class MacroType: DataType<Macro>, ValueType {
+    class MacroType: BasicType<Macro>, ValueType {
         var name: String { "Macro" }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
@@ -1066,7 +1073,7 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class MetaType: DataType<any ValueType>, ValueType {
+    class MetaType: BasicType<any ValueType>, ValueType {
         var name: String { "Meta" }
 
         func equals(_ value1: Value, _ value2: Value) -> Bool {
@@ -1074,7 +1081,7 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class PairType: DataType<(Value, Value)>, ValueType {
+    class PairType: BasicType<(Value, Value)>, ValueType {
         var name: String { "Pair" }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
@@ -1094,7 +1101,7 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class StringType: DataType<String>, ValueType {
+    class StringType: BasicType<String>, ValueType {
         var name: String { "String" }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
@@ -1110,7 +1117,7 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class TimeType: DataType<Duration>, ValueType {
+    class TimeType: BasicType<Duration>, ValueType {
         var name: String { "Time" }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
@@ -1235,10 +1242,7 @@ class StandardLibrary: Namespace {
             
             let f = Function(id ?? "lambda", fargs, resultType, startPc: startPc) {
                 (f, vm, pc, stack, pos) throws in
-                vm.currentCall = Call(vm.currentCall, f,
-                                      at: pos,
-                                      stackOffset: f.stackOffset(stack),
-                                      returnPc: pc)
+                vm.currentCall = Call(vm.currentCall, f, stack.cut(f.arity), at: pos, returnPc: pc)
                 pc = startPc
             }
 

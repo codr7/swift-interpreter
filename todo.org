@@ -1,12 +1,3 @@
-* debug missing argument in check/evaluate case
-** works with parens around expr
-
-* debug left over stack values in closure
-
-* commit tests
-
-* rename DataType to BasicType
-
 * convert = back to function
 ** add ValueType.isa()
 *** add BasicType.parentTypes
@@ -41,12 +32,14 @@ function fib1(n:Int):Int
 benchmark 100 fib1 20
 
 1.46366123
+1.788655231
 
 function fib2(n:Int a:Int b:Int):Int 
   if n.> 1 return fib2 n.- 1 b a.+ b else if n.= 0 a else b 
 benchmark 10000 fib2 70 0 1
 
 0.572912145
+0.624275309
 
 function fib3(n:Int lookup:HashMap):Int
   get-set lookup n if n.< 2 n else (fib3 n.- 1 lookup).+ fib3 n.- 2 lookup 
