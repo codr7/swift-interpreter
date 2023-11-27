@@ -1,5 +1,9 @@
 check 3 1.+ 2
 
+check Int 42.type
+check true 42.is? Int
+check true Int.is? Meta
+
 check 3 evaluate 1.+ 2
 
 check 3 (

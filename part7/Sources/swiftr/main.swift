@@ -30,8 +30,10 @@ var nextTypeId: TypeId = 0
 protocol ValueType: CustomStringConvertible {
     associatedtype Data
     
+    var hierarchy: Set<TypeId> {get}
     var id: TypeId {get}
-    var name: String { get }
+    var name: String {get}
+    var parentType: (any ValueType)? {get}
 
     func cast(_ value: Value) -> Data
     func equals(_ other: any ValueType) -> Bool
@@ -49,14 +51,14 @@ protocol ValueType: CustomStringConvertible {
 }
 
 extension ValueType {
-    var description: String { name }
+    var description: String {name}
 
     func cast(_ value: Value) -> Data {
         value.data as! Data
     }
 
     func equals(_ other: any ValueType) -> Bool {
-        other.id == id
+        return other.id == id
     }
     
     func identifierEmit(_ value: Value,
@@ -64,16 +66,12 @@ extension ValueType {
                         at pos: Position,
                         inNamespace: Namespace,
                         withArguments args: inout [Form]) throws {
-        args.insert(Literal(pos, value), at: 0)
+        vm.emit(.push(value))
     }
 
     func safeCast(_ value: Value, at pos: Position) throws -> Data {
         let v = value.data as? Data
-
-        if v == nil {
-            throw EvaluateError.typeMismatch(pos)
-        }
-
+        if v == nil { throw EvaluateError.typeMismatch(pos) }
         return v!
     }
 
@@ -86,13 +84,21 @@ extension ValueType {
     }
 }
 
-class BasicType<T> {
+class BasicType<T> {    
     typealias Data = T
-    
+
+    lazy var hierarchy: Set<TypeId> = {
+        var result: Set<TypeId> = [id]
+        if parentType != nil { result.formUnion(parentType!.hierarchy) }
+        return result
+    }()
+
     lazy var id: TypeId = {
         nextTypeId += 1
         return nextTypeId
     }()
+
+    var parentType: (any ValueType)? {nil}
 }
 
 enum EmitError: Error {
@@ -600,7 +606,7 @@ class VM {
                 pc += 1
             case let .checkType(pos, expected):
                 let actual = stack.last!.type
-                if !actual.equals(expected) { throw EvaluateError.typeMismatch(pos) }
+                if !actual.hierarchy.contains(expected.id) { throw EvaluateError.typeMismatch(pos) }
                 pc += 1
             case let .closure(target):
                 var cs: Stack = []
@@ -939,8 +945,17 @@ func readWhitespace(_ input: inout Input, _ output: inout [Form], _ pos: inout P
 }
 
 class StandardLibrary: Namespace {
+    class AnyType: BasicType<Argument>, ValueType {
+        var name: String { "Any" }
+
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            fatalError("Not supported")
+        }
+    }
+    
     class ArgumentType: BasicType<Argument>, ValueType {
         var name: String { "Argument" }
+        override var parentType: (any ValueType)? { std.anyType }
 
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) == cast(value2)
@@ -958,6 +973,7 @@ class StandardLibrary: Namespace {
 
     class ArrayType: BasicType<[Value]>, ValueType {
         var name: String { "Array" }
+        override var parentType: (any ValueType)? { std.anyType }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             let a1 = cast(value1)
@@ -982,6 +998,7 @@ class StandardLibrary: Namespace {
 
     class BoolType: BasicType<Bool>, ValueType {
         var name: String { "Bool" }
+        override var parentType: (any ValueType)? { std.anyType }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) == cast(value2)
@@ -998,6 +1015,7 @@ class StandardLibrary: Namespace {
     
     class FunctionType: BasicType<Function>, ValueType {
         var name: String { "Function" }
+        override var parentType: (any ValueType)? { std.anyType }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) === cast(value2)
@@ -1010,7 +1028,7 @@ class StandardLibrary: Namespace {
                             withArguments args: inout [Form]) throws {
             let f = cast(value)
             
-            for a in f.arguments {
+            for a in f.arguments {                
                 if args.isEmpty {
                     throw EmitError.missingArgument(pos)
                 }
@@ -1022,18 +1040,18 @@ class StandardLibrary: Namespace {
                 if f is Literal {
                     actual = (f as! Literal).value.type
                 } else if f is Identifier {
-                    let v = ns[(f as! Identifier).name]
-
-                    if v != nil {
-                        if v!.type.equals(std.argumentType) {
-                            actual = std.argumentType.cast(v!).type
-                        } else if v!.type.equals(std.functionType) {
-                            actual = std.functionType.cast(v!).resultType
+                    if let v = ns[(f as! Identifier).name] {
+                        if v.type.equals(std.argumentType) {
+                            actual = std.argumentType.cast(v).type
+                        } else if v.type.equals(std.functionType) {
+                            actual = std.functionType.cast(v).resultType
+                        } else {
+                            actual = v.type
                         }
                     }
                 }
 
-                if actual != nil && !actual!.equals(expected) {
+                if actual != nil && !actual!.hierarchy.contains(expected.id) {
                     throw EmitError.typeMismatch(f.position)
                 }
                 
@@ -1047,6 +1065,7 @@ class StandardLibrary: Namespace {
 
     class IntType: BasicType<Int>, ValueType {
         var name: String { "Int" }
+        override var parentType: (any ValueType)? { std.anyType }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) == cast(value2)
@@ -1059,6 +1078,7 @@ class StandardLibrary: Namespace {
 
     class MacroType: BasicType<Macro>, ValueType {
         var name: String { "Macro" }
+        override var parentType: (any ValueType)? { std.anyType }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) === cast(value2)
@@ -1075,14 +1095,16 @@ class StandardLibrary: Namespace {
 
     class MetaType: BasicType<any ValueType>, ValueType {
         var name: String { "Meta" }
+        override var parentType: (any ValueType)? { std.anyType }
 
         func equals(_ value1: Value, _ value2: Value) -> Bool {
-            return !cast(value1).equals(cast(value2))
+            return cast(value1).equals(cast(value2))
         }
     }
 
     class PairType: BasicType<(Value, Value)>, ValueType {
         var name: String { "Pair" }
+        override var parentType: (any ValueType)? { std.anyType }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             let p1 = cast(value1)
@@ -1103,6 +1125,7 @@ class StandardLibrary: Namespace {
 
     class StringType: BasicType<String>, ValueType {
         var name: String { "String" }
+        override var parentType: (any ValueType)? { std.anyType }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) == cast(value2)
@@ -1119,6 +1142,7 @@ class StandardLibrary: Namespace {
 
     class TimeType: BasicType<Duration>, ValueType {
         var name: String { "Time" }
+        override var parentType: (any ValueType)? { std.anyType }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) == cast(value2)
@@ -1128,7 +1152,8 @@ class StandardLibrary: Namespace {
             cast(value) != Duration.zero
         }
     }
-    
+
+    let anyType = AnyType()
     let argumentType = ArgumentType()
     let arrayType = ArrayType()
     let boolType = BoolType()
@@ -1142,7 +1167,8 @@ class StandardLibrary: Namespace {
 
     init() {
         super.init()
-        
+
+        self["Any"] = Value(metaType, anyType)
         self["Array"] = Value(metaType, arrayType)
         self["Bool"] = Value(metaType, boolType)
         self["Function"] = Value(metaType, functionType)
@@ -1298,7 +1324,7 @@ class StandardLibrary: Namespace {
             
             vm.code[ifPc] = .branch(elsePc)
         }
-        
+
         bindMacro("or", 2) {(_, vm, pos, ns, args) throws in
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             let or = vm.emit(.nop)
@@ -1366,13 +1392,19 @@ class StandardLibrary: Namespace {
             for i in 0..<f.arguments.count {
                 let expected = f.arguments[i].1
                 let actual  = args[i].type
-                if !actual.equals(expected) { throw EvaluateError.typeMismatch(pos) }
+                if !actual.hierarchy.contains(expected.id) { throw EvaluateError.typeMismatch(pos) }
             }
 
             stack.append(contentsOf: args)
             try f.call(vm, &pc, &stack, at: pos)
         }
-        
+
+        bindFunction("is?", [("value", anyType), ("type", metaType)], boolType) {
+            (_, vm, pc, stack, pos) throws in
+            let t = self.metaType.cast(stack.pop())
+            stack.push(Value(self.boolType, stack.pop().type.hierarchy.contains(t.id)))
+        }
+
         bindFunction("load", [("path", stringType)], nil) {(_, vm, pc, stack, pos) throws in
             let startPc = vm.emitPc
             try load(vm, readForm, fromPath: self.stringType.cast(stack.pop()), inNamespace: self)
@@ -1389,6 +1421,10 @@ class StandardLibrary: Namespace {
             let d = self.timeType.cast(stack.pop())
             Thread.sleep(forTimeInterval: Double(d.components.seconds) +
                            Double(d.components.attoseconds) * 1e-18)
+        }
+
+        bindFunction("type", [("value", anyType)], metaType) {(_, vm, pc, stack, pos) throws in
+            stack.push(Value(self.metaType, stack.pop().type))
         }
 
         bindFunction("yield", [], nil) {(_, vm, pc, stack, pos) throws in
