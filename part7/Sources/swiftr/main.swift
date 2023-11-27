@@ -151,9 +151,9 @@ class Call {
     
     var arguments: [Value]
     var position: Position
-    var target: Function
+    var target: UserFunction
     
-    init(_ parentCall: Call?, _ target: Function, _ arguments: [Value], at pos: Position, returnPc: PC) {
+    init(_ parentCall: Call?, _ target: UserFunction, _ arguments: [Value], at pos: Position, returnPc: PC) {
         self.parentCall = parentCall
         self.target = target
         self.arguments = arguments
@@ -169,76 +169,83 @@ class Function: CustomStringConvertible {
     let body: Body
     let name: String
     let resultType: (any ValueType)?
-    let startPc: PC?
-    var endPc: PC?
 
-    var arity: Int { arguments.count }
-    
-    lazy var closureArguments: [Argument.Value] = {
-        var result: [Argument.Value] = []
-
-        if startPc != nil {
-            for i in startPc!..<endPc! {
-                switch vm.code[i] {
-                case let .argument(arg):
-                    if arg.value.callOffset > 0 {
-                        let ai = Argument.Value(arg.value.callOffset-1, arg.value.index)
-                        
-                        if result.firstIndex(of: ai) == nil {
-                            result.append(ai)
-                        }
-                        
-                        vm.code[i] = .argument(Argument(0,
-                                                        arguments.count + result.firstIndex(of: ai)!,
-                                                        arg.type))
-                    }
-                default:
-                    break
-                }
-            }
-        }
-
-        return result
-    }()
-    
+    var arity: Int { arguments.count }    
     var description: String { name }
     
     init(_ name: String,
          _ arguments: [(String, any ValueType)],
          _ resultType: (any ValueType)?,
-         startPc: PC? = nil,
-         endPc: PC? = nil,
          _ body: @escaping Body) {
         self.name = name
         self.arguments = arguments
         self.resultType = resultType
-        self.startPc = startPc
-        self.endPc = endPc
         self.body = body
     }
 
     func call(_ vm: VM, _ pc: inout PC, _ stack: inout Stack, at pos: Position) throws {
         try body(self, vm, &pc, &stack, pos)
     }
+}
 
-    func stackOffset(_ stack: Stack) -> Int {
-        stack.count - arguments.count
+class UserFunction: Function {
+    let startPc: PC
+    var endPc: PC? = nil
+
+    lazy var closureArguments: [Argument.Value] = {
+        var result: [Argument.Value] = []
+
+        for i in startPc..<endPc! {
+            switch vm.code[i] {
+            case let .argument(arg):
+                if arg.value.callOffset > 0 {
+                    let ai = Argument.Value(arg.value.callOffset-1, arg.value.index)
+                    
+                    if result.firstIndex(of: ai) == nil {
+                        result.append(ai)
+                    }
+                    
+                    vm.code[i] = .argument(Argument(0,
+                                                    arguments.count + result.firstIndex(of: ai)!,
+                                                    arg.type))
+                }
+            default:
+                break
+            }
+        }
+
+        return result
+    }()
+    
+    init(_ name: String,
+         _ arguments: [(String, any ValueType)],
+         _ resultType: (any ValueType)?,
+         _ startPc: PC) {
+        self.startPc = startPc
+        
+        super.init(name, arguments, resultType) {
+            (f, vm, pc, stack, pos) throws in
+            vm.currentCall = Call(vm.currentCall,
+                                  f as! UserFunction,
+                                  stack.cut(f.arity),
+                                  at: pos,
+                                  returnPc: pc)
+            pc = startPc
+        }
     }
 }
 
-class Closure: Function {
+class Closure: UserFunction {
     let stack: Stack
     override var arity: Int { arguments.count + closureArguments.count }
 
-    init(_ target: Function, _ stack: Stack) {
+    init(_ target: UserFunction, _ stack: Stack) {
         self.stack = stack
 
         super.init(target.name,
                    target.arguments,
                    target.resultType,
-                   startPc: target.startPc,
-                   endPc: target.endPc,
-                   target.body)
+                   target.startPc)
         
         self.closureArguments = target.closureArguments
     }
@@ -246,10 +253,6 @@ class Closure: Function {
     override func call(_ vm: VM, _ pc: inout PC, _ stack: inout Stack, at pos: Position) throws {
         stack.append(contentsOf: self.stack)
         try super.call(vm, &pc, &stack, at: pos)
-    }
-
-    override func stackOffset(_ stack: Stack) -> Int {
-        stack.count - closureArguments.count - arguments.count
     }
 }
 
@@ -524,7 +527,7 @@ class VM {
         case call(Position, Function)
         case check(Position)
         case checkType(Position, any ValueType)
-        case closure(Function)
+        case closure(UserFunction)
         case equals(Position)
         case goto(PC)
         case makeArray(Int)
@@ -534,7 +537,7 @@ class VM {
         case popCall
         case push(Value)
         case stop
-        case tailCall(Position, Function)
+        case tailCall(Position, UserFunction)
         case task(PC)
         case trace
     }
@@ -655,14 +658,14 @@ class VM {
             case let .tailCall(pos, target):
                 let c = currentCall
                 
-                if c == nil || c!.target.startPc == nil {
+                if c == nil {
                     pc += 1
                     try target.call(self, &pc, &stack, at: pos)
                 } else {
                     c!.target = target
                     c!.arguments = stack.cut(target.arity)
                     c!.position = pos
-                    pc = target.startPc!
+                    pc = target.startPc
                 }
             case let .task(endPc):
                 startTask(pc: pc+1)
@@ -1266,11 +1269,7 @@ class StandardLibrary: Namespace {
             let skip = vm.emit(.nop)
             let startPc = vm.emitPc
             
-            let f = Function(id ?? "lambda", fargs, resultType, startPc: startPc) {
-                (f, vm, pc, stack, pos) throws in
-                vm.currentCall = Call(vm.currentCall, f, stack.cut(f.arity), at: pos, returnPc: pc)
-                pc = startPc
-            }
+            let f = UserFunction(id ?? "lambda", fargs, resultType, startPc)
 
             if id != nil {
                 ns[id!] = Value(self.functionType, f)
@@ -1337,8 +1336,8 @@ class StandardLibrary: Namespace {
 
             switch vm.code.last {
             case let .call(pos, target):
-                if target.startPc != nil {
-                    vm.code[vm.code.count-1] = .tailCall(pos, target)
+                if target is UserFunction {
+                    vm.code[vm.code.count-1] = .tailCall(pos, target as! UserFunction)
                 } else {
                     fallthrough
                 }
