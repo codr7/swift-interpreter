@@ -103,7 +103,7 @@ enum EmitError: Error {
 }
 
 enum EvaluateError: Error {
-    case arityMismatch(Position, Int, Int)
+    case arityMismatch(Position)
     case missingValue(Position)
     case typeMismatch(Position)
 }
@@ -1344,11 +1344,7 @@ class StandardLibrary: Namespace {
             (_, vm, pc, stack, pos) throws in
             let args = self.arrayType.cast(stack.pop())
             let f = self.functionType.cast(stack.pop())
-
-            if args.count != f.arguments.count {
-                throw EvaluateError.arityMismatch(pos, f.arguments.count, args.count)
-            }
-
+            if args.count != f.arguments.count { throw EvaluateError.arityMismatch(pos) }
 
             for i in 0..<f.arguments.count {
                 let expected = f.arguments[i].1

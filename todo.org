@@ -6,7 +6,7 @@
 * inc pc in stop op, part1-4
 
 * fib3
-** add HashMap type
+** add HashMap type from part 6
 ** add ValueType.hash func
 ** add get-set function
 ** add python benchmark
