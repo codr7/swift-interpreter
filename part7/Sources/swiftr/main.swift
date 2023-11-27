@@ -1,6 +1,10 @@
 import Foundation
 
-struct Value: CustomStringConvertible {
+struct Value: CustomStringConvertible, Hashable {
+    static func == (l: Value, r: Value) -> Bool {
+        l.type.equals(r.type) && l.type.equals(l, r)
+    }
+
     let data: Any
     let type: any ValueType
 
@@ -12,8 +16,8 @@ struct Value: CustomStringConvertible {
         self.data = data
     }
 
-    func equals(_ other: Value) -> Bool {
-        type.equals(self, other)
+    func hash(into hasher: inout Hasher) {
+        type.hash(self, &hasher)
     }
 
     func identifierEmit(_ vm: VM,
@@ -38,6 +42,7 @@ protocol ValueType: CustomStringConvertible {
     func cast(_ value: Value) -> Data
     func equals(_ other: any ValueType) -> Bool
     func equals(_ value1: Value, _ value2: Value) -> Bool
+    func hash(_ value: Value, _ hasher: inout Hasher)
 
     func identifierEmit(_ value: Value,
                         _ vm: VM,
@@ -163,7 +168,7 @@ class Call {
 }
 
 class Function: CustomStringConvertible {
-    typealias Body = (Function, VM, inout PC, inout Stack, Position) throws -> Void
+    typealias Body = (Function, VM, inout PC, inout [Value], Position) throws -> Void
     
     let arguments: [(String, any ValueType)]
     let body: Body
@@ -183,7 +188,7 @@ class Function: CustomStringConvertible {
         self.body = body
     }
 
-    func call(_ vm: VM, _ pc: inout PC, _ stack: inout Stack, at pos: Position) throws {
+    func call(_ vm: VM, _ pc: inout PC, _ stack: inout [Value], at pos: Position) throws {
         try body(self, vm, &pc, &stack, pos)
     }
 }
@@ -236,10 +241,10 @@ class UserFunction: Function {
 }
 
 class Closure: UserFunction {
-    let stack: Stack
+    let stack: [Value]
     override var arity: Int { arguments.count + closureArguments.count }
 
-    init(_ target: UserFunction, _ stack: Stack) {
+    init(_ target: UserFunction, _ stack: [Value]) {
         self.stack = stack
 
         super.init(target.name,
@@ -250,7 +255,7 @@ class Closure: UserFunction {
         self.closureArguments = target.closureArguments
     }
     
-    override func call(_ vm: VM, _ pc: inout PC, _ stack: inout Stack, at pos: Position) throws {
+    override func call(_ vm: VM, _ pc: inout PC, _ stack: inout [Value], at pos: Position) throws {
         stack.append(contentsOf: self.stack)
         try super.call(vm, &pc, &stack, at: pos)
     }
@@ -357,7 +362,7 @@ class BasicForm {
     }
 }
 
-class ArrayForm: BasicForm, Form {
+class Stack: BasicForm, Form {
     let items: [Form]
     override var description: String { "[\(items.map({"\($0)"}).joined(separator: " "))]" }
 
@@ -370,7 +375,24 @@ class ArrayForm: BasicForm, Form {
               inNamespace ns: Namespace,
               withArguments args: inout [Form]) throws {
         try items.emit(vm, inNamespace: ns)
-        vm.emit(.makeArray(items.count))
+        vm.emit(.makeStack(position, items.count))
+    }
+}
+
+class Hash: BasicForm, Form {
+    let items: [Form]
+    override var description: String { "{\(items.map({"\($0)"}).joined(separator: " "))}" }
+
+    init(_ position: Position, _ items: [Form]) {
+        self.items = items
+        super.init(position)
+    }
+
+    func emit(_ vm: VM,
+              inNamespace ns: Namespace,
+              withArguments args: inout [Form]) throws {
+        try items.emit(vm, inNamespace: ns)
+        vm.emit(.makeHash(position, items.count))
     }
 }
 
@@ -486,9 +508,7 @@ extension [Form] {
     }
 }
 
-typealias Stack = [Value]
-
-extension Stack {
+extension [Value] {
     mutating func pop() -> Value {
         removeLast()
     }
@@ -497,10 +517,10 @@ extension Stack {
         append(value)
     }
 
-    mutating func cut(_ n: Int) -> Stack {
+    mutating func cut(_ n: Int) -> [Value] {
         let result = suffix(n)
         removeLast(n)
-        return Stack(result)
+        return Array(result)
     }
 }
 
@@ -511,7 +531,7 @@ class Task {
 
     var currentCall: Call?
     var pc: PC
-    var stack: Stack = []
+    var stack: [Value] = []
 
     init(id: Id, startPc: PC) {
         self.id = id
@@ -529,8 +549,9 @@ class VM {
         case checkType(Position, any ValueType)
         case closure(UserFunction)
         case goto(PC)
-        case makeArray(Int)
+        case makeHash(Position, Int)
         case makePair(Position)
+        case makeStack(Position, Int)
         case nop
         case or(PC)
         case popCall
@@ -566,7 +587,7 @@ class VM {
         return pc
     }
     
-    func evaluate(fromPc: PC, stack: inout Stack) throws {
+    func evaluate(fromPc: PC, stack: inout [Value]) throws {
         var pc = fromPc
         
         loop: while true {
@@ -604,14 +625,14 @@ class VM {
                 if stack.count < 2 { throw EvaluateError.missingValue(pos) }
                 let actual = stack.pop()
                 let expected = stack.pop()
-                if !actual.equals(expected) { throw EvaluateError.checkFailed(pos, expected, actual) }
+                if actual != expected { throw EvaluateError.checkFailed(pos, expected, actual) }
                 pc += 1
             case let .checkType(pos, expected):
                 let actual = stack.last!.type
                 if !actual.hierarchy.contains(expected.id) { throw EvaluateError.typeMismatch(pos) }
                 pc += 1
             case let .closure(target):
-                var cs: Stack = []
+                var cs: [Value] = []
                 
                 for a in target.closureArguments {
                     var c = currentCall!
@@ -623,16 +644,31 @@ class VM {
                 pc += 1
             case let .goto(targetPc):
                 pc = targetPc
-            case let .makeArray(count):
-                let items = stack.suffix(count)
-                stack.removeLast(count)
-                stack.push(Value(std.arrayType, Array(items)))
+            case let .makeHash(pos, count):
+                if stack.count < count { throw EvaluateError.missingValue(pos) }
+                var h: [Value:Value] = [:]
+
+                for it in stack.cut(count) {
+                    if it.type.equals(std.pairType) {
+                        let p = std.pairType.cast(it)
+                        h[p.0] = p.1
+                    } else {
+                        h[it] = it
+                    }    
+                }
+                
+                stack.push(Value(std.hashType, h))
                 pc += 1
             case let .makePair(pos):
                 if stack.count < 2 { throw EvaluateError.missingValue(pos) }
                 let rightValue = stack.pop()
                 let leftValue = stack.pop()
                 stack.push(Value(std.pairType, (leftValue, rightValue)))
+                pc += 1
+            case let .makeStack(pos, count):
+                if stack.count < count { throw EvaluateError.missingValue(pos) }
+                let items = stack.cut(count)
+                stack.push(Value(std.stackType, Array(items)))
                 pc += 1
             case .nop:
                 pc += 1
@@ -711,7 +747,8 @@ let readers = [readWhitespace,
                readDot,
                readReference,
                readPair,
-               readArray,
+               readStack,
+               readHash,
                readList,
                readString,
                readInt,
@@ -729,29 +766,6 @@ func readAll(_ reader: Reader, _ input: inout Input, _ output: [Form], _ pos: in
     var result = output
     while try reader(&input, &result, &pos) {}
     return result
-}
-
-func readArray(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
-    let fpos = pos
-    var c = input.popChar()
-    
-    if c != "[" {
-        if c != nil { input.pushChar(c!) }
-        return false
-    }
-    
-    pos.column += 1
-    let items = try readAll(readForm, &input, [], &pos)
-    c = input.popChar()
-
-    if c != "]" {
-        if c != nil { input.pushChar(c!) }
-        throw ReadError.invalidSyntax(fpos)
-    }
-    
-    pos.column += 1
-    output.append(ArrayForm(fpos, items))
-    return true
 }
 
 func readDot(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {    
@@ -774,12 +788,39 @@ func readDot(_ input: inout Input, _ output: inout [Form], _ pos: inout Position
     return true
 }
 
+func readHash(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
+    let fpos = pos
+    var c = input.popChar()
+    
+    if c != "{" {
+        if c != nil { input.pushChar(c!) }
+        return false
+    }
+    
+    pos.column += 1
+    let items = try readAll(readForm, &input, [], &pos)
+    c = input.popChar()
+
+    if c != "}" {
+        if c != nil { input.pushChar(c!) }
+        throw ReadError.invalidSyntax(fpos)
+    }
+    
+    pos.column += 1
+    output.append(Hash(fpos, items))
+    return true
+}
+
 func readIdentifier(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
     let fpos = pos
     var name = ""
     
     while let c = input.popChar() {
-        if c.isWhitespace || c == "(" || c == ")" || c == "[" || c == "]" || c == ":" || c == "&" || c == "." {
+        if c.isWhitespace ||
+             c == "(" || c == ")" ||
+             c == "[" || c == "]" ||
+             c == "{" || c == "}" ||
+             c == ":" || c == "&" || c == "." {
             input.pushChar(c)
             break
         }
@@ -895,6 +936,29 @@ func readReference(_ input: inout Input, _ output: inout [Form], _ pos: inout Po
     return true
 }
 
+func readStack(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
+    let fpos = pos
+    var c = input.popChar()
+    
+    if c != "[" {
+        if c != nil { input.pushChar(c!) }
+        return false
+    }
+    
+    pos.column += 1
+    let items = try readAll(readForm, &input, [], &pos)
+    c = input.popChar()
+
+    if c != "]" {
+        if c != nil { input.pushChar(c!) }
+        throw ReadError.invalidSyntax(fpos)
+    }
+    
+    pos.column += 1
+    output.append(Stack(fpos, items))
+    return true
+}
+
 func readString(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
     let fpos = pos
     var c = input.popChar()
@@ -947,6 +1011,10 @@ class StandardLibrary: Namespace {
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             fatalError("Not supported")
         }
+
+        func hash(_ value: Value, _ hasher: inout Hasher) {
+            fatalError("Not supported")
+        }
     }
     
     class ArgumentType: BasicType<Argument>, ValueType {
@@ -955,6 +1023,13 @@ class StandardLibrary: Namespace {
 
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) == cast(value2)
+        }
+
+        func hash(_ value: Value, _ hasher: inout Hasher) {
+            let a = cast(value)
+            hasher.combine(a.value.callOffset)
+            hasher.combine(a.value.index)
+            hasher.combine(a.type.name)
         }
 
         func identifierEmit(_ value: Value,
@@ -967,31 +1042,6 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class ArrayType: BasicType<[Value]>, ValueType {
-        var name: String { "Array" }
-        override var parentType: (any ValueType)? { std.anyType }
-        
-        func equals(_ value1: Value, _ value2: Value) -> Bool {
-            let a1 = cast(value1)
-            let a2 = cast(value2)
-            if a1.count != a2.count { return false }
-            
-            for i in 0..<a1.count {
-                if !a1[i].equals(a2[i]) { return false }
-            }
-            
-            return true
-        }
-
-        func toBool(_ value: Value) -> Bool {
-            cast(value).count != 0
-        }
-
-        func toString(_ value: Value) -> String {
-            "[\(cast(value).map({"\($0)"}).joined(separator: " "))]"
-        }
-    }
-
     class BoolType: BasicType<Bool>, ValueType {
         var name: String { "Bool" }
         override var parentType: (any ValueType)? { std.anyType }
@@ -1000,6 +1050,10 @@ class StandardLibrary: Namespace {
             return cast(value1) == cast(value2)
         }
 
+        func hash(_ value: Value, _ hasher: inout Hasher) {
+            hasher.combine(cast(value))
+        }
+        
         func toBool(_ value: Value) -> Bool {
             cast(value)
         }
@@ -1015,6 +1069,10 @@ class StandardLibrary: Namespace {
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) === cast(value2)
+        }
+
+        func hash(_ value: Value, _ hasher: inout Hasher) {
+            hasher.combine(cast(value).name)
         }
 
         func identifierEmit(_ value: Value,
@@ -1059,12 +1117,48 @@ class StandardLibrary: Namespace {
         }
     }
 
+    class HashType: BasicType<[Value:Value]>, ValueType {
+        var name: String { "Hash" }
+        override var parentType: (any ValueType)? { std.anyType }
+        
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            let h1 = cast(value1)
+            let h2 = cast(value2)
+            if h1.count != h2.count { return false }
+            
+            for (k, v) in h1 {
+                if h2[k] != v { return false }
+            }
+            
+            return true
+        }
+
+        func hash(_ value: Value, _ hasher: inout Hasher) {
+            for (k, v) in cast(value) {
+                k.hash(into: &hasher)
+                v.hash(into: &hasher)
+            }
+        }
+
+        func toBool(_ value: Value) -> Bool {
+            cast(value).count != 0
+        }
+
+        func toString(_ value: Value) -> String {
+            "{\(cast(value).map({$0 == $1 ? "\($0)" : "\($0):\($1)"}).joined(separator: " "))}"
+        }
+    }
+    
     class IntType: BasicType<Int>, ValueType {
         var name: String { "Int" }
         override var parentType: (any ValueType)? { std.anyType }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) == cast(value2)
+        }
+
+        func hash(_ value: Value, _ hasher: inout Hasher) {
+            hasher.combine(cast(value))
         }
 
         func toBool(_ value: Value) -> Bool {
@@ -1078,6 +1172,10 @@ class StandardLibrary: Namespace {
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) === cast(value2)
+        }
+
+        func hash(_ value: Value, _ hasher: inout Hasher) {
+            hasher.combine(cast(value).name)
         }
 
         func identifierEmit(_ value: Value,
@@ -1096,6 +1194,10 @@ class StandardLibrary: Namespace {
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1).equals(cast(value2))
         }
+
+        func hash(_ value: Value, _ hasher: inout Hasher) {
+            hasher.combine(cast(value).name)
+        }
     }
 
     class PairType: BasicType<(Value, Value)>, ValueType {
@@ -1105,7 +1207,13 @@ class StandardLibrary: Namespace {
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             let p1 = cast(value1)
             let p2 = cast(value2)
-            return p1.0.equals(p2.0) && p1.1.equals(p2.1)
+            return p1.0 == p2.0 && p1.1 == p2.1
+        }
+
+        func hash(_ value: Value, _ hasher: inout Hasher) {
+            let p = cast(value)
+            p.0.hash(into: &hasher)
+            p.1.hash(into: &hasher)
         }
 
         func toBool(_ value: Value) -> Bool {
@@ -1119,12 +1227,45 @@ class StandardLibrary: Namespace {
         }
     }
 
+    class StackType: BasicType<[Value]>, ValueType {
+        var name: String { "Stack" }
+        override var parentType: (any ValueType)? { std.anyType }
+        
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            let a1 = cast(value1)
+            let a2 = cast(value2)
+            if a1.count != a2.count { return false }
+            
+            for i in 0..<a1.count {
+                if a1[i] != a2[i] { return false }
+            }
+            
+            return true
+        }
+
+        func hash(_ value: Value, _ hasher: inout Hasher) {
+            for v in cast(value) { v.hash(into: &hasher) }
+        }
+
+        func toBool(_ value: Value) -> Bool {
+            cast(value).count != 0
+        }
+
+        func toString(_ value: Value) -> String {
+            "[\(cast(value).map({"\($0)"}).joined(separator: " "))]"
+        }
+    }
+
     class StringType: BasicType<String>, ValueType {
         var name: String { "String" }
         override var parentType: (any ValueType)? { std.anyType }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) == cast(value2)
+        }
+
+        func hash(_ value: Value, _ hasher: inout Hasher) {
+            hasher.combine(cast(value))
         }
 
         func toBool(_ value: Value) -> Bool {
@@ -1144,6 +1285,10 @@ class StandardLibrary: Namespace {
             return cast(value1) == cast(value2)
         }
 
+        func hash(_ value: Value, _ hasher: inout Hasher) {
+            hasher.combine(cast(value))
+        }
+
         func toBool(_ value: Value) -> Bool {
             cast(value) != Duration.zero
         }
@@ -1151,13 +1296,14 @@ class StandardLibrary: Namespace {
 
     let anyType = AnyType()
     let argumentType = ArgumentType()
-    let arrayType = ArrayType()
     let boolType = BoolType()
     let functionType = FunctionType()
+    let hashType = HashType()
     let intType = IntType()
     let macroType = MacroType()
     let metaType = MetaType()
     let pairType = PairType()
+    let stackType = StackType()
     let stringType = StringType()
     let timeType = TimeType()
 
@@ -1165,13 +1311,14 @@ class StandardLibrary: Namespace {
         super.init()
 
         self["Any"] = Value(metaType, anyType)
-        self["Array"] = Value(metaType, arrayType)
         self["Bool"] = Value(metaType, boolType)
         self["Function"] = Value(metaType, functionType)
+        self["Hash"] = Value(metaType, hashType)
         self["Int"] = Value(metaType, intType)
         self["Macro"] = Value(metaType, macroType)
         self["Meta"] = Value(metaType, metaType)
         self["Pair"] = Value(metaType, pairType)
+        self["Stack"] = Value(metaType, stackType)
         self["String"] = Value(metaType, stringType)
         self["Time"] = Value(metaType, timeType)
 
@@ -1193,7 +1340,7 @@ class StandardLibrary: Namespace {
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             vm.emit(.stop)
             vm.code[gotoPc] = .goto(vm.emitPc)
-            var stack: Stack = []
+            var stack: [Value] = []
             try vm.evaluate(fromPc: startPc, stack: &stack)
             
             if stack.isEmpty {
@@ -1216,7 +1363,7 @@ class StandardLibrary: Namespace {
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             vm.emit(.stop)
             vm.code[gotoPc] = .goto(vm.emitPc)
-            var stack: Stack = []
+            var stack: [Value] = []
             try vm.evaluate(fromPc: startPc, stack: &stack)
             for v in stack { vm.emit(.push(v)) }
         }
@@ -1346,7 +1493,7 @@ class StandardLibrary: Namespace {
         }
         
         bindFunction("=", [("left", anyType), ("right", anyType)], boolType) {(_, vm, pc, stack, pos) throws in
-            stack.push(Value(self.boolType, stack.pop().equals(stack.pop())))
+            stack.push(Value(self.boolType, stack.pop() == stack.pop()))
         }
 
         bindFunction("<", [("left", intType), ("right", intType)], boolType) {(_, vm, pc, stack, pos) throws in
@@ -1373,9 +1520,9 @@ class StandardLibrary: Namespace {
             stack.push(Value(self.intType, l - r))
         }
 
-        bindFunction("call", [("target", functionType), ("arguments", arrayType)], nil) {
+        bindFunction("call", [("target", functionType), ("arguments", stackType)], nil) {
             (_, vm, pc, stack, pos) throws in
-            let args = self.arrayType.cast(stack.pop())
+            let args = self.stackType.cast(stack.pop())
             let f = self.functionType.cast(stack.pop())
             if args.count != f.arguments.count { throw EvaluateError.arityMismatch(pos) }
 
@@ -1446,7 +1593,7 @@ func load(_ vm: VM, _ reader: Reader, fromPath path: String, inNamespace ns: Nam
     try fs.emit(vm, inNamespace: ns)
 }
 
-func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace, stack: inout Stack) throws {
+func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace, stack: inout [Value]) throws {
     var input = Input()
     var prompt = 1
     
@@ -1477,7 +1624,7 @@ func repl(_ vm: VM, _ reader: Reader, inNamespace ns: Namespace, stack: inout St
 }
 
 let vm = VM()
-var stack: Stack = []
+var stack: [Value] = []
 
 if CommandLine.arguments.count == 1 {
     try repl(vm, readForm, inNamespace: std, stack: &stack)

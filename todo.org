@@ -1,8 +1,8 @@
 * fib3
-** add HashMap type
-** add ValueType.hash func
 ** add get-set function
 ** add python benchmark
+
+* convert parentType to parentTypes array
 
 * add support for ref closures
 
@@ -29,6 +29,6 @@ benchmark 10000 fib2 70 0 1
 
 0.624275309
 
-function fib3(n:Int lookup:HashMap):Int
+function fib3(n:Int lookup:Hash):Int
   get-set lookup n if n.< 2 n else (fib3 n.- 1 lookup).+ fib3 n.- 2 lookup 
 benchmark 100 fib3 20 {}

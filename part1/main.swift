@@ -42,7 +42,6 @@ struct Function: CustomStringConvertible {
 }
 
 typealias PC = Int
-typealias Stack = [Value]
 
 class VM {
     enum Operation {
@@ -52,7 +51,7 @@ class VM {
     }
     
     var code: [Operation] = []
-    var stack: Stack = []
+    var stack: [Value] = []
 
     func emit(_ op: Operation) {
         code.append(op)
