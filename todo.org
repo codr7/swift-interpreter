@@ -1,7 +1,7 @@
 * finish check macro
 ** port to part7
 ** add tests from todo
-** commit
+*** use separate ns in benchmark body
 
 * inc pc in stop op, part1-4
 
