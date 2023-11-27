@@ -528,7 +528,6 @@ class VM {
         case check(Position)
         case checkType(Position, any ValueType)
         case closure(UserFunction)
-        case equals(Position)
         case goto(PC)
         case makeArray(Int)
         case makePair(Position)
@@ -621,12 +620,6 @@ class VM {
                 }
 
                 stack.push(Value(std.functionType, Closure(target, cs)))
-                pc += 1
-            case let .equals(pos):
-                if stack.count < 2 { throw EvaluateError.missingValue(pos) }
-                let rightValue = stack.pop()
-                let leftValue = stack.pop()
-                stack.push(Value(std.boolType, leftValue.equals(rightValue)))
                 pc += 1
             case let .goto(targetPc):
                 pc = targetPc
@@ -1210,12 +1203,6 @@ class StandardLibrary: Namespace {
             ns[name] = stack.pop()
         }
 
-        bindMacro("=", 2) {(_, vm, pos, ns, args) throws in
-            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
-            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
-            vm.emit(.equals(pos))
-        }
-
         bindMacro("check", 2) {(_, vm, pos, ns, args) throws in
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             let bodyNs = Namespace(ns)
@@ -1358,6 +1345,10 @@ class StandardLibrary: Namespace {
             vm.trace = !vm.trace
         }
         
+        bindFunction("=", [("left", anyType), ("right", anyType)], boolType) {(_, vm, pc, stack, pos) throws in
+            stack.push(Value(self.boolType, stack.pop().equals(stack.pop())))
+        }
+
         bindFunction("<", [("left", intType), ("right", intType)], boolType) {(_, vm, pc, stack, pos) throws in
             let r = self.intType.cast(stack.pop())
             let l = self.intType.cast(stack.pop())

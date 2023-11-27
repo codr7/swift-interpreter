@@ -1,5 +1,3 @@
-* convert = back to function
-
 * fib3
 ** add HashMap type
 ** add ValueType.hash func
