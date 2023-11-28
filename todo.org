@@ -1,5 +1,3 @@
-* add ArrayRef like HashRef
-
 * convert parentType to parentTypes array
 
 * add support for ref closures

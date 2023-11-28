@@ -699,7 +699,7 @@ class VM {
             case let .makeList(pos, count):
                 if stack.count < count { throw EvaluateError.missingValue(pos) }
                 let items = stack.cut(count)
-                stack.push(Value(std.listType, Array(items)))
+                stack.push(Value(std.listType, ListRef(items)))
                 pc += 1
             case .nop:
                 pc += 1
@@ -1044,6 +1044,15 @@ class HashRef {
     }
 }
 
+class ListRef {
+    typealias Items = [Value]
+    var items: Items
+
+    init(_ items: Items) {
+        self.items = items
+    }
+}
+
 class StandardLibrary: Namespace {
     class AnyType: BasicType<Argument>, ValueType {
         var name: String { "Any" }
@@ -1206,32 +1215,32 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class ListType: BasicType<[Value]>, ValueType {
+    class ListType: BasicType<ListRef>, ValueType {
         var name: String { "List" }
         override var parentType: (any ValueType)? { std.anyType }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             let a1 = cast(value1)
             let a2 = cast(value2)
-            if a1.count != a2.count { return false }
+            if a1.items.count != a2.items.count { return false }
             
-            for i in 0..<a1.count {
-                if a1[i] != a2[i] { return false }
+            for i in 0..<a1.items.count {
+                if a1.items[i] != a2.items[i] { return false }
             }
             
             return true
         }
 
         func hash(_ value: Value, _ hasher: inout Hasher) {
-            for v in cast(value) { v.hash(into: &hasher) }
+            for v in cast(value).items { v.hash(into: &hasher) }
         }
 
         func toBool(_ value: Value) -> Bool {
-            cast(value).count != 0
+            cast(value).items.count != 0
         }
 
         func toString(_ value: Value) -> String {
-            "[\(cast(value).map({"\($0)"}).joined(separator: " "))]"
+            "[\(cast(value).items.map({"\($0)"}).joined(separator: " "))]"
         }
     }
 
@@ -1569,7 +1578,7 @@ class StandardLibrary: Namespace {
 
         bindFunction("call", [("target", functionType), ("arguments", listType)], nil) {
             (_, vm, pc, stack, pos) throws in
-            let args = self.listType.cast(stack.pop())
+            let args = self.listType.cast(stack.pop()).items
             let f = self.functionType.cast(stack.pop())
             if args.count != f.arguments.count { throw EvaluateError.arityMismatch(pos) }
 
@@ -1602,6 +1611,10 @@ class StandardLibrary: Namespace {
         bindFunction("milliseconds", [("value", intType)], timeType) {(_, vm, pc, stack, pos) throws in
             let v = self.intType.cast(stack.pop())
             stack.push(Value(self.timeType, Duration.milliseconds(v)))
+        }
+
+        bindFunction("pop", [("list", listType)], anyType) {(_, vm, pc, stack, pos) throws in
+            stack.push(self.listType.cast(stack.pop()).items.removeLast())
         }
 
         bindFunction("sleep", [("duration", timeType)], nil) {(_, vm, pc, stack, pos) throws in
