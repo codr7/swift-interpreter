@@ -1574,7 +1574,10 @@ class StandardLibrary: Namespace {
         }
     }
 
-    func bindFunction(_ name: String, _ args: [(String, any ValueType)], _ resultType: (any ValueType)?,_ body: @escaping Function.Body) {
+    func bindFunction(_ name: String,
+                      _ args: [(String, any ValueType)],
+                      _ resultType: (any ValueType)?,
+                      _ body: @escaping Function.Body) {
         self[name] = Value(functionType, Function(name, args, resultType, body))
     }
 
