@@ -1,3 +1,15 @@
+* add say function
+** "\(v.say)\n"
+** add Value.say
+** add ValueType.say
+*** default toString
+*** pair x: y
+*** list x y z
+*** hash x: y z 
+*** string foo
+
+* put benchmarks into benchmarks/fib.swiftr
+
 ---
 
 swift run -c release
