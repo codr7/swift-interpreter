@@ -562,7 +562,7 @@ class VM {
         case check(Position)
         case checkType(Position, any ValueType)
         case closure(UserFunction)
-        case getSet(Position, PC)
+        case getInsert(Position, PC)
         case goto(PC)
         case makeHash(Position, Int)
         case makeList(Position, Int)
@@ -659,7 +659,7 @@ class VM {
 
                 stack.push(Value(std.functionType, Closure(target, cs)))
                 pc += 1
-            case let .getSet(pos, endPc):
+            case let .getInsert(pos, endPc):
                 if stack.count < 2 { throw EvaluateError.missingValue(pos) }
                 let key = stack.pop()
                 let hash = try std.hashType.safeCast(stack.pop(), at: pos)
@@ -1137,8 +1137,10 @@ class StandardLibrary: Namespace {
                             std.argumentType.cast(v).type
                         } else if v.type.equals(std.functionType) {
                              std.functionType.cast(v).resultType
-                        } else {
+                        } else if !v.type.equals(std.macroType) {
                             v.type
+                        } else {
+                            nil
                         }
                     }
                 }
@@ -1363,6 +1365,8 @@ class StandardLibrary: Namespace {
         self["true"] = Value(boolType, true)
         self["false"] = Value(boolType, false)
         
+        bindMacro("_", 0) {(_, vm, pos, ns, args) throws in}
+
         bindMacro("benchmark", 2) {(_, vm, pos, ns, args) throws in
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             let benchmarkPc = vm.emit(.nop)
@@ -1471,13 +1475,13 @@ class StandardLibrary: Namespace {
             }
         }
 
-        bindMacro("get-set", 3) {(_, vm, pos, ns, args) throws in
+        bindMacro("get-insert", 3) {(_, vm, pos, ns, args) throws in
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             let pc = vm.emit(.nop)
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             vm.emit(.stop)
-            vm.code[pc] = .getSet(pos, vm.emitPc)
+            vm.code[pc] = .getInsert(pos, vm.emitPc)
         }
 
         bindMacro("if", 2) {(_, vm, pos, ns, args) throws in

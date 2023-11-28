@@ -1,6 +1,3 @@
-* fib3
-** add python benchmark
-
 * add ArrayRef like HashRef
 
 * convert parentType to parentTypes array
@@ -14,6 +11,13 @@ function foo(x:Int):Function (
 )
 call foo 42 [3]
 
+* add Hash upsert
+
+foo(lookup:Hash):Hash (
+  lookup.insert "foo" 1
+  lookup.upsert "foo" 0 _.+1
+  lookup.upsert "bar" 3 _.+1
+)
 ---
 
 swift run -c release
@@ -31,7 +35,7 @@ benchmark 10000 fib2 70 0 1
 0.624275309
 
 function fib3(n:Int lookup:Hash):Int
-  lookup.get-set n if n.< 2 n else (fib3 n.- 1 lookup).+ fib3 n.- 2 lookup 
+  lookup.get-insert n if n.< 2 n else (fib3 n.- 1 lookup).+ fib3 n.- 2 lookup 
 benchmark 10000 fib3 70 {}
 
 1.649630514
