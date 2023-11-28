@@ -290,17 +290,35 @@ class Macro: CustomStringConvertible {
 
 class Namespace: Sequence {
     typealias Bindings = [String:Value]
-    typealias Iterator = Bindings.Iterator
-    
-    let parent: Namespace?
+
+    struct Iterator: IteratorProtocol {
+        var namespace: Namespace
+        var iterator: Bindings.Iterator
+
+        init(_ namespace: Namespace) {
+            self.namespace = namespace
+            iterator = namespace.bindings.makeIterator()
+        }
+        
+        
+        mutating func next() -> (String, Value)? {
+            if let next = iterator.next() { return next }
+            if namespace.parentNamespace == nil { return nil }
+            namespace = namespace.parentNamespace!
+            iterator = namespace.bindings.makeIterator()
+            return next()
+        }
+    }
+
+    let parentNamespace: Namespace?
     var bindings: Bindings = [:]
     
     subscript(key: String) -> Value? {
         get {
             return if let value = bindings[key] {
                 value
-            } else if parent != nil {
-                parent![key]
+            } else if parentNamespace != nil {
+                parentNamespace![key]
             } else {
                 nil
             }
@@ -308,12 +326,12 @@ class Namespace: Sequence {
         set(value) { bindings[key] = value }
     }
 
-    init(_ parent: Namespace? = nil) {
-        self.parent = parent
+    init(_ parentNamespace: Namespace? = nil) {
+        self.parentNamespace = parentNamespace
     }
 
     public func makeIterator() -> Iterator {
-        bindings.makeIterator()
+        Iterator(self)
     }
 }
 
@@ -359,22 +377,6 @@ class BasicForm {
         }
 
         return f!
-    }
-}
-
-class Block: BasicForm, Form {
-    let items: [Form]
-    override var description: String { "(\(items.map({"\($0)"}).joined(separator: " "))" }
-
-    init(_ position: Position, _ items: [Form]) {
-        self.items = items
-        super.init(position)
-    }
-
-    func emit(_ vm: VM,
-              inNamespace ns: Namespace,
-              withArguments args: inout [Form]) throws {
-        try items.emit(vm, inNamespace: ns)
     }
 }
 
@@ -489,12 +491,25 @@ class Reference: BasicForm, Form {
               inNamespace ns: Namespace,
               withArguments args: inout [Form]) throws {
         let v = ns[id]
-
-        if v == nil {
-            throw EmitError.unknownIdentifier(position, id)
-        }
-        
+        if v == nil { throw EmitError.unknownIdentifier(position, id) }
         vm.emit(.push(v!))
+    }
+}
+
+class Scope: BasicForm, Form {
+    let items: [Form]
+    override var description: String { "(\(items.map({"\($0)"}).joined(separator: " "))" }
+
+    init(_ position: Position, _ items: [Form]) {
+        self.items = items
+        super.init(position)
+    }
+
+    func emit(_ vm: VM,
+              inNamespace ns: Namespace,
+              withArguments args: inout [Form]) throws {
+        let bodyNs = Namespace(ns)
+        try items.emit(vm, inNamespace: bodyNs)
     }
 }
 
@@ -748,7 +763,7 @@ typealias Reader = (_ input: inout Input, _ output: inout [Form], _ pos: inout P
 let readers = [readWhitespace,
                readDot,
                readReference,
-               readBlock,
+               readScope,
                readPair,
                readList,
                readHash,
@@ -768,29 +783,6 @@ func readAll(_ reader: Reader, _ input: inout Input, _ output: [Form], _ pos: in
     var result = output
     while try reader(&input, &result, &pos) {}
     return result
-}
-
-func readBlock(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
-    let fpos = pos
-    var c = input.popChar()
-    
-    if c != "(" {
-        if c != nil { input.pushChar(c!) }
-        return false
-    }
-    
-    pos.column += 1
-    let items = try readAll(readForm, &input, [], &pos)
-    c = input.popChar()
-
-    if c != ")" {
-        if c != nil { input.pushChar(c!) }
-        throw ReadError.invalidSyntax(fpos)
-    }
-    
-    pos.column += 1
-    output.append(Block(fpos, items))
-    return true
 }
 
 func readDot(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {    
@@ -958,6 +950,29 @@ func readReference(_ input: inout Input, _ output: inout [Form], _ pos: inout Po
     }
     
     output.append(Reference(fpos, try output.removeLast().cast(Identifier.self).name))
+    return true
+}
+
+func readScope(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
+    let fpos = pos
+    var c = input.popChar()
+    
+    if c != "(" {
+        if c != nil { input.pushChar(c!) }
+        return false
+    }
+    
+    pos.column += 1
+    let items = try readAll(readForm, &input, [], &pos)
+    c = input.popChar()
+
+    if c != ")" {
+        if c != nil { input.pushChar(c!) }
+        throw ReadError.invalidSyntax(fpos)
+    }
+    
+    pos.column += 1
+    output.append(Scope(fpos, items))
     return true
 }
 
@@ -1382,7 +1397,7 @@ class StandardLibrary: Namespace {
                 argsForm = p.leftValue
             }
             
-            let fargs = try argsForm.cast(Block.self).items.map {(it) in
+            let fargs = try argsForm.cast(Scope.self).items.map {(it) in
                 let p = try it.cast(Pair.self)
                 let n = try p.leftValue.cast(Identifier.self).name
                 let tid = try p.rightValue.cast(Identifier.self).name
@@ -1405,21 +1420,21 @@ class StandardLibrary: Namespace {
                 ns[id!] = Value(self.functionType, f)
             }
             
-            let fns = Namespace(ns)
+            let bodyNs = Namespace(ns)
 
             for (k, v) in ns {
                 if v.type.equals(std.argumentType) {
                     let a = std.argumentType.cast(v)
-                    fns[k] = Value(std.argumentType, Argument(a.value.callOffset+1, a.value.index, a.type))
+                    bodyNs[k] = Value(std.argumentType, Argument(a.value.callOffset+1, a.value.index, a.type))
                 }
             }
             
             for i in 0..<fargs.count {
                 let a = fargs[i]
-                fns[a.0] = Value(self.argumentType, Argument(0, i, a.1))
+                bodyNs[a.0] = Value(self.argumentType, Argument(0, i, a.1))
             }
 
-            try body.emit(vm, inNamespace: fns, withArguments: &args)
+            try body.emit(vm, inNamespace: bodyNs, withArguments: &args)
             vm.emit(.popCall)
             f.endPc = vm.emitPc
             vm.code[skip] = .goto(f.endPc!)
