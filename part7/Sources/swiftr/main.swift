@@ -300,7 +300,6 @@ class Namespace: Sequence {
             iterator = namespace.bindings.makeIterator()
         }
         
-        
         mutating func next() -> (String, Value)? {
             if let next = iterator.next() { return next }
             if namespace.parentNamespace == nil { return nil }
@@ -563,6 +562,7 @@ class VM {
         case check(Position)
         case checkType(Position, any ValueType)
         case closure(UserFunction)
+        case getSet(Position, PC)
         case goto(PC)
         case makeHash(Position, Int)
         case makeList(Position, Int)
@@ -659,6 +659,20 @@ class VM {
 
                 stack.push(Value(std.functionType, Closure(target, cs)))
                 pc += 1
+            case let .getSet(pos, endPc):
+                if stack.count < 2 { throw EvaluateError.missingValue(pos) }
+                let key = stack.pop()
+                let hash = try std.hashType.safeCast(stack.pop(), at: pos)
+                
+                if let v = hash.items[key] {
+                    stack.push(v)
+                } else {
+                    try evaluate(fromPc: pc+1, stack: &stack)
+                    if stack.isEmpty { throw EvaluateError.missingValue(pos) }
+                    hash.items[key] = stack.last
+                }
+
+                pc = endPc
             case let .goto(targetPc):
                 pc = targetPc
             case let .makeHash(pos, count):
@@ -674,7 +688,7 @@ class VM {
                     }    
                 }
                 
-                stack.push(Value(std.hashType, h))
+                stack.push(Value(std.hashType, HashRef(h)))
                 pc += 1
             case let .makePair(pos):
                 if stack.count < 2 { throw EvaluateError.missingValue(pos) }
@@ -1021,6 +1035,15 @@ func readWhitespace(_ input: inout Input, _ output: inout [Form], _ pos: inout P
     return pos.line != p.line || pos.column != p.column
 }
 
+class HashRef {
+    typealias Items = [Value:Value]
+    var items: Items
+
+    init(_ items: Items) {
+        self.items = items
+    }
+}
+
 class StandardLibrary: Namespace {
     class AnyType: BasicType<Argument>, ValueType {
         var name: String { "Any" }
@@ -1132,35 +1155,35 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class HashType: BasicType<[Value:Value]>, ValueType {
+    class HashType: BasicType<HashRef>, ValueType {
         var name: String { "Hash" }
         override var parentType: (any ValueType)? { std.anyType }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             let h1 = cast(value1)
             let h2 = cast(value2)
-            if h1.count != h2.count { return false }
+            if h1.items.count != h2.items.count { return false }
             
-            for (k, v) in h1 {
-                if h2[k] != v { return false }
+            for (k, v) in h1.items {
+                if h2.items[k] != v { return false }
             }
             
             return true
         }
 
         func hash(_ value: Value, _ hasher: inout Hasher) {
-            for (k, v) in cast(value) {
+            for (k, v) in cast(value).items {
                 k.hash(into: &hasher)
                 v.hash(into: &hasher)
             }
         }
 
         func toBool(_ value: Value) -> Bool {
-            cast(value).count != 0
+            cast(value).items.count != 0
         }
 
         func toString(_ value: Value) -> String {
-            "{\(cast(value).map({$0 == $1 ? "\($0)" : "\($0):\($1)"}).joined(separator: " "))}"
+            "{\(cast(value).items.map({$0 == $1 ? "\($0)" : "\($0):\($1)"}).joined(separator: " "))}"
         }
     }
     
@@ -1447,7 +1470,16 @@ class StandardLibrary: Namespace {
                 }
             }
         }
-        
+
+        bindMacro("get-set", 3) {(_, vm, pos, ns, args) throws in
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+            let pc = vm.emit(.nop)
+            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+            vm.emit(.stop)
+            vm.code[pc] = .getSet(pos, vm.emitPc)
+        }
+
         bindMacro("if", 2) {(_, vm, pos, ns, args) throws in
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
             let ifPc = vm.emit(.nop)
@@ -1549,8 +1581,8 @@ class StandardLibrary: Namespace {
             stack.append(contentsOf: args)
             try f.call(vm, &pc, &stack, at: pos)
         }
-
-        bindFunction("is?", [("value", anyType), ("type", metaType)], boolType) {
+        
+        bindFunction("is", [("value", anyType), ("type", metaType)], boolType) {
             (_, vm, pc, stack, pos) throws in
             let t = self.metaType.cast(stack.pop())
             stack.push(Value(self.boolType, stack.pop().type.hierarchy.contains(t.id)))

@@ -5,8 +5,8 @@ check false 1.> 3
 check 3 1.+ 2
 
 check Int 42.type
-check true 42.is? Int
-check true Int.is? Meta
+check true 42.is Int
+check true Int.is Meta
 
 check 3 evaluate 1.+ 2
 
@@ -31,6 +31,12 @@ check 55 (
   function fib(n:Int a:Int b:Int):Int 
     if n.> 1 return fib n.- 1 b a.+ b else if n.= 0 a else b    
   fib 10 0 1
+)
+
+check 55 (
+  function fib(n:Int lookup:Hash):Int
+    lookup.get-set n if n.< 2 n else (fib n.- 1 lookup).+ fib n.- 2 lookup 
+  fib 10 {}
 )
 
 check 45 (
