@@ -378,23 +378,6 @@ class Block: BasicForm, Form {
     }
 }
 
-class Stack: BasicForm, Form {
-    let items: [Form]
-    override var description: String { "[\(items.map({"\($0)"}).joined(separator: " "))]" }
-
-    init(_ position: Position, _ items: [Form]) {
-        self.items = items
-        super.init(position)
-    }
-
-    func emit(_ vm: VM,
-              inNamespace ns: Namespace,
-              withArguments args: inout [Form]) throws {
-        try items.emit(vm, inNamespace: ns)
-        vm.emit(.makeStack(position, items.count))
-    }
-}
-
 class Hash: BasicForm, Form {
     let items: [Form]
     override var description: String { "{\(items.map({"\($0)"}).joined(separator: " "))}" }
@@ -429,6 +412,23 @@ class Identifier: BasicForm, Form {
         } else {
             throw EmitError.unknownIdentifier(position, name)
         }
+    }
+}
+
+class List: BasicForm, Form {
+    let items: [Form]
+    override var description: String { "[\(items.map({"\($0)"}).joined(separator: " "))]" }
+
+    init(_ position: Position, _ items: [Form]) {
+        self.items = items
+        super.init(position)
+    }
+
+    func emit(_ vm: VM,
+              inNamespace ns: Namespace,
+              withArguments args: inout [Form]) throws {
+        try items.emit(vm, inNamespace: ns)
+        vm.emit(.makeList(position, items.count))
     }
 }
 
@@ -550,8 +550,8 @@ class VM {
         case closure(UserFunction)
         case goto(PC)
         case makeHash(Position, Int)
+        case makeList(Position, Int)
         case makePair(Position)
-        case makeStack(Position, Int)
         case nop
         case or(PC)
         case popCall
@@ -667,10 +667,10 @@ class VM {
                 let leftValue = stack.pop()
                 stack.push(Value(std.pairType, (leftValue, rightValue)))
                 pc += 1
-            case let .makeStack(pos, count):
+            case let .makeList(pos, count):
                 if stack.count < count { throw EvaluateError.missingValue(pos) }
                 let items = stack.cut(count)
-                stack.push(Value(std.stackType, Array(items)))
+                stack.push(Value(std.listType, Array(items)))
                 pc += 1
             case .nop:
                 pc += 1
@@ -750,7 +750,7 @@ let readers = [readWhitespace,
                readReference,
                readBlock,
                readPair,
-               readStack,
+               readList,
                readHash,
                readString,
                readInt,
@@ -897,6 +897,29 @@ func readInt(_ input: inout Input, _ output: inout [Form], _ pos: inout Position
     return true
 }
 
+func readList(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
+    let fpos = pos
+    var c = input.popChar()
+    
+    if c != "[" {
+        if c != nil { input.pushChar(c!) }
+        return false
+    }
+    
+    pos.column += 1
+    let items = try readAll(readForm, &input, [], &pos)
+    c = input.popChar()
+
+    if c != "]" {
+        if c != nil { input.pushChar(c!) }
+        throw ReadError.invalidSyntax(fpos)
+    }
+    
+    pos.column += 1
+    output.append(List(fpos, items))
+    return true
+}
+
 func readPair(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
     let fpos = pos
     let c = input.popChar()
@@ -935,29 +958,6 @@ func readReference(_ input: inout Input, _ output: inout [Form], _ pos: inout Po
     }
     
     output.append(Reference(fpos, try output.removeLast().cast(Identifier.self).name))
-    return true
-}
-
-func readStack(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
-    let fpos = pos
-    var c = input.popChar()
-    
-    if c != "[" {
-        if c != nil { input.pushChar(c!) }
-        return false
-    }
-    
-    pos.column += 1
-    let items = try readAll(readForm, &input, [], &pos)
-    c = input.popChar()
-
-    if c != "]" {
-        if c != nil { input.pushChar(c!) }
-        throw ReadError.invalidSyntax(fpos)
-    }
-    
-    pos.column += 1
-    output.append(Stack(fpos, items))
     return true
 }
 
@@ -1166,6 +1166,35 @@ class StandardLibrary: Namespace {
         }
     }
 
+    class ListType: BasicType<[Value]>, ValueType {
+        var name: String { "List" }
+        override var parentType: (any ValueType)? { std.anyType }
+        
+        func equals(_ value1: Value, _ value2: Value) -> Bool {
+            let a1 = cast(value1)
+            let a2 = cast(value2)
+            if a1.count != a2.count { return false }
+            
+            for i in 0..<a1.count {
+                if a1[i] != a2[i] { return false }
+            }
+            
+            return true
+        }
+
+        func hash(_ value: Value, _ hasher: inout Hasher) {
+            for v in cast(value) { v.hash(into: &hasher) }
+        }
+
+        func toBool(_ value: Value) -> Bool {
+            cast(value).count != 0
+        }
+
+        func toString(_ value: Value) -> String {
+            "[\(cast(value).map({"\($0)"}).joined(separator: " "))]"
+        }
+    }
+
     class MacroType: BasicType<Macro>, ValueType {
         var name: String { "Macro" }
         override var parentType: (any ValueType)? { std.anyType }
@@ -1227,35 +1256,6 @@ class StandardLibrary: Namespace {
         }
     }
 
-    class StackType: BasicType<[Value]>, ValueType {
-        var name: String { "Stack" }
-        override var parentType: (any ValueType)? { std.anyType }
-        
-        func equals(_ value1: Value, _ value2: Value) -> Bool {
-            let a1 = cast(value1)
-            let a2 = cast(value2)
-            if a1.count != a2.count { return false }
-            
-            for i in 0..<a1.count {
-                if a1[i] != a2[i] { return false }
-            }
-            
-            return true
-        }
-
-        func hash(_ value: Value, _ hasher: inout Hasher) {
-            for v in cast(value) { v.hash(into: &hasher) }
-        }
-
-        func toBool(_ value: Value) -> Bool {
-            cast(value).count != 0
-        }
-
-        func toString(_ value: Value) -> String {
-            "[\(cast(value).map({"\($0)"}).joined(separator: " "))]"
-        }
-    }
-
     class StringType: BasicType<String>, ValueType {
         var name: String { "String" }
         override var parentType: (any ValueType)? { std.anyType }
@@ -1300,10 +1300,10 @@ class StandardLibrary: Namespace {
     let functionType = FunctionType()
     let hashType = HashType()
     let intType = IntType()
+    let listType = ListType()
     let macroType = MacroType()
     let metaType = MetaType()
     let pairType = PairType()
-    let stackType = StackType()
     let stringType = StringType()
     let timeType = TimeType()
 
@@ -1315,10 +1315,10 @@ class StandardLibrary: Namespace {
         self["Function"] = Value(metaType, functionType)
         self["Hash"] = Value(metaType, hashType)
         self["Int"] = Value(metaType, intType)
+        self["List"] = Value(metaType, listType)
         self["Macro"] = Value(metaType, macroType)
         self["Meta"] = Value(metaType, metaType)
         self["Pair"] = Value(metaType, pairType)
-        self["Stack"] = Value(metaType, stackType)
         self["String"] = Value(metaType, stringType)
         self["Time"] = Value(metaType, timeType)
 
@@ -1342,11 +1342,7 @@ class StandardLibrary: Namespace {
             vm.code[gotoPc] = .goto(vm.emitPc)
             var stack: [Value] = []
             try vm.evaluate(fromPc: startPc, stack: &stack)
-            
-            if stack.isEmpty {
-                throw EvaluateError.missingValue(pos)
-            }
-
+            if stack.isEmpty { throw EvaluateError.missingValue(pos) }
             ns[name] = stack.pop()
         }
 
@@ -1520,9 +1516,9 @@ class StandardLibrary: Namespace {
             stack.push(Value(self.intType, l - r))
         }
 
-        bindFunction("call", [("target", functionType), ("arguments", stackType)], nil) {
+        bindFunction("call", [("target", functionType), ("arguments", listType)], nil) {
             (_, vm, pc, stack, pos) throws in
-            let args = self.stackType.cast(stack.pop())
+            let args = self.listType.cast(stack.pop())
             let f = self.functionType.cast(stack.pop())
             if args.count != f.arguments.count { throw EvaluateError.arityMismatch(pos) }
 
