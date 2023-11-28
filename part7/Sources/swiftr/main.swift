@@ -37,7 +37,7 @@ protocol ValueType: CustomStringConvertible {
     var hierarchy: Set<TypeId> {get}
     var id: TypeId {get}
     var name: String {get}
-    var parentType: (any ValueType)? {get}
+    var parentTypes: [any ValueType] {get}
 
     func cast(_ value: Value) -> Data
     func equals(_ other: any ValueType) -> Bool
@@ -94,7 +94,7 @@ class BasicType<T> {
 
     lazy var hierarchy: Set<TypeId> = {
         var result: Set<TypeId> = [id]
-        if parentType != nil { result.formUnion(parentType!.hierarchy) }
+        for pt in parentTypes { result.formUnion(pt.hierarchy) }
         return result
     }()
 
@@ -103,7 +103,7 @@ class BasicType<T> {
         return nextTypeId
     }()
 
-    var parentType: (any ValueType)? {nil}
+    var parentTypes: [any ValueType] {[]}
 }
 
 enum EmitError: Error {
@@ -1060,7 +1060,7 @@ class ListRef {
 
 class StandardLibrary: Namespace {
     class AnyType: BasicType<Argument>, ValueType {
-        var name: String { "Any" }
+        var name = "Any"
 
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             fatalError("Not supported")
@@ -1072,8 +1072,8 @@ class StandardLibrary: Namespace {
     }
     
     class ArgumentType: BasicType<Argument>, ValueType {
-        var name: String { "Argument" }
-        override var parentType: (any ValueType)? { std.anyType }
+        let name = "Argument"
+        override var parentTypes: [any ValueType] {[std.anyType]}
 
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) == cast(value2)
@@ -1097,8 +1097,8 @@ class StandardLibrary: Namespace {
     }
 
     class BoolType: BasicType<Bool>, ValueType {
-        var name: String { "Bool" }
-        override var parentType: (any ValueType)? { std.anyType }
+        let name = "Bool"
+        override var parentTypes: [any ValueType] {[std.anyType]}
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) == cast(value2)
@@ -1118,8 +1118,8 @@ class StandardLibrary: Namespace {
     }
     
     class FunctionType: BasicType<Function>, ValueType {
-        var name: String { "Function" }
-        override var parentType: (any ValueType)? { std.anyType }
+        let name = "Function"
+        override var parentTypes: [any ValueType] {[std.anyType]}
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) === cast(value2)
@@ -1172,8 +1172,8 @@ class StandardLibrary: Namespace {
     }
 
     class HashType: BasicType<HashRef>, ValueType {
-        var name: String { "Hash" }
-        override var parentType: (any ValueType)? { std.anyType }
+        let name = "Hash"
+        override var parentTypes: [any ValueType] {[std.anyType]}
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             let h1 = cast(value1)
@@ -1204,8 +1204,8 @@ class StandardLibrary: Namespace {
     }
     
     class IntType: BasicType<Int>, ValueType {
-        var name: String { "Int" }
-        override var parentType: (any ValueType)? { std.anyType }
+        let name = "Int"
+        override var parentTypes: [any ValueType] {[std.anyType]}
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) == cast(value2)
@@ -1221,8 +1221,8 @@ class StandardLibrary: Namespace {
     }
 
     class ListType: BasicType<ListRef>, ValueType {
-        var name: String { "List" }
-        override var parentType: (any ValueType)? { std.anyType }
+        let name = "List"
+        override var parentTypes: [any ValueType] {[std.anyType]}
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             let a1 = cast(value1)
@@ -1250,8 +1250,8 @@ class StandardLibrary: Namespace {
     }
 
     class MacroType: BasicType<Macro>, ValueType {
-        var name: String { "Macro" }
-        override var parentType: (any ValueType)? { std.anyType }
+        let name = "Macro"
+        override var parentTypes: [any ValueType] {[std.anyType]}
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) === cast(value2)
@@ -1271,8 +1271,8 @@ class StandardLibrary: Namespace {
     }
 
     class MetaType: BasicType<any ValueType>, ValueType {
-        var name: String { "Meta" }
-        override var parentType: (any ValueType)? { std.anyType }
+        let name = "Meta"
+        override var parentTypes: [any ValueType] {[std.anyType]}
 
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1).equals(cast(value2))
@@ -1284,8 +1284,8 @@ class StandardLibrary: Namespace {
     }
 
     class PairType: BasicType<(Value, Value)>, ValueType {
-        var name: String { "Pair" }
-        override var parentType: (any ValueType)? { std.anyType }
+        let name = "Pair"
+        override var parentTypes: [any ValueType] {[std.anyType]}
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             let p1 = cast(value1)
@@ -1311,8 +1311,8 @@ class StandardLibrary: Namespace {
     }
 
     class StringType: BasicType<String>, ValueType {
-        var name: String { "String" }
-        override var parentType: (any ValueType)? { std.anyType }
+        let name = "String"
+        override var parentTypes: [any ValueType] {[std.anyType]}
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) == cast(value2)
@@ -1332,8 +1332,8 @@ class StandardLibrary: Namespace {
     }
 
     class TimeType: BasicType<Duration>, ValueType {
-        var name: String { "Time" }
-        override var parentType: (any ValueType)? { std.anyType }
+        let name = "Time"
+        override var parentTypes: [any ValueType] {[std.anyType]}
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) == cast(value2)
