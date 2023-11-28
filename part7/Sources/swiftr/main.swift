@@ -246,7 +246,7 @@ class Closure: UserFunction {
 
     init(_ target: UserFunction, _ stack: [Value]) {
         self.stack = stack
-
+        
         super.init(target.name,
                    target.arguments,
                    target.resultType,
@@ -491,7 +491,12 @@ class Reference: BasicForm, Form {
               withArguments args: inout [Form]) throws {
         let v = ns[id]
         if v == nil { throw EmitError.unknownIdentifier(position, id) }
-        vm.emit(.push(v!))
+        
+        if let f = v!.data as? UserFunction {
+            vm.emit(f.closureArguments.isEmpty ? .push(v!) : .closure(f))
+        } else {
+            vm.emit(.push(v!))
+        }
     }
 }
 

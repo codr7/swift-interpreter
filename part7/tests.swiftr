@@ -58,3 +58,12 @@ check 45 (
       x.+ y
   call foo 42 [3]
 )
+
+check 45 (
+  function foo(x:Int):Function (
+    function bar(y:Int):Int 
+      x.+ y
+    &bar
+  )
+  call foo 42 [3]
+)

@@ -1,14 +1,5 @@
 * convert parentType to parentTypes array
 
-* add support for ref closures
-
-function foo(x:Int):Function (
-  function bar(y:Int):Int 
-    x.+ y
-  &bar
-)
-call foo 42 [3]
-
 * add Hash upsert
 
 foo(lookup:Hash):Hash (
