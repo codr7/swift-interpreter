@@ -362,6 +362,22 @@ class BasicForm {
     }
 }
 
+class Block: BasicForm, Form {
+    let items: [Form]
+    override var description: String { "(\(items.map({"\($0)"}).joined(separator: " "))" }
+
+    init(_ position: Position, _ items: [Form]) {
+        self.items = items
+        super.init(position)
+    }
+
+    func emit(_ vm: VM,
+              inNamespace ns: Namespace,
+              withArguments args: inout [Form]) throws {
+        try items.emit(vm, inNamespace: ns)
+    }
+}
+
 class Stack: BasicForm, Form {
     let items: [Form]
     override var description: String { "[\(items.map({"\($0)"}).joined(separator: " "))]" }
@@ -413,22 +429,6 @@ class Identifier: BasicForm, Form {
         } else {
             throw EmitError.unknownIdentifier(position, name)
         }
-    }
-}
-
-class List: BasicForm, Form {
-    let items: [Form]
-    override var description: String { "(\(items.map({"\($0)"}).joined(separator: " "))" }
-
-    init(_ position: Position, _ items: [Form]) {
-        self.items = items
-        super.init(position)
-    }
-
-    func emit(_ vm: VM,
-              inNamespace ns: Namespace,
-              withArguments args: inout [Form]) throws {
-        try items.emit(vm, inNamespace: ns)
     }
 }
 
@@ -748,10 +748,10 @@ typealias Reader = (_ input: inout Input, _ output: inout [Form], _ pos: inout P
 let readers = [readWhitespace,
                readDot,
                readReference,
+               readBlock,
                readPair,
                readStack,
                readHash,
-               readList,
                readString,
                readInt,
                readIdentifier]
@@ -768,6 +768,29 @@ func readAll(_ reader: Reader, _ input: inout Input, _ output: [Form], _ pos: in
     var result = output
     while try reader(&input, &result, &pos) {}
     return result
+}
+
+func readBlock(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
+    let fpos = pos
+    var c = input.popChar()
+    
+    if c != "(" {
+        if c != nil { input.pushChar(c!) }
+        return false
+    }
+    
+    pos.column += 1
+    let items = try readAll(readForm, &input, [], &pos)
+    c = input.popChar()
+
+    if c != ")" {
+        if c != nil { input.pushChar(c!) }
+        throw ReadError.invalidSyntax(fpos)
+    }
+    
+    pos.column += 1
+    output.append(Block(fpos, items))
+    return true
 }
 
 func readDot(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {    
@@ -871,29 +894,6 @@ func readInt(_ input: inout Input, _ output: inout [Form], _ pos: inout Position
     
     if (pos.column == fpos.column) { return false; }
     output.append(Literal(fpos, Value(std.intType, neg ? -v : v)))
-    return true
-}
-
-func readList(_ input: inout Input, _ output: inout [Form], _ pos: inout Position) throws -> Bool {
-    let fpos = pos
-    var c = input.popChar()
-    
-    if c != "(" {
-        if c != nil { input.pushChar(c!) }
-        return false
-    }
-    
-    pos.column += 1
-    let items = try readAll(readForm, &input, [], &pos)
-    c = input.popChar()
-
-    if c != ")" {
-        if c != nil { input.pushChar(c!) }
-        throw ReadError.invalidSyntax(fpos)
-    }
-    
-    pos.column += 1
-    output.append(List(fpos, items))
     return true
 }
 
@@ -1085,9 +1085,7 @@ class StandardLibrary: Namespace {
             let f = cast(value)
             
             for a in f.arguments {                
-                if args.isEmpty {
-                    throw EmitError.missingArgument(pos)
-                }
+                if args.isEmpty { throw EmitError.missingArgument(pos) }
 
                 let f = args.removeFirst()
                 let expected = a.1
@@ -1388,7 +1386,7 @@ class StandardLibrary: Namespace {
                 argsForm = p.leftValue
             }
             
-            let fargs = try argsForm.cast(List.self).items.map {(it) in
+            let fargs = try argsForm.cast(Block.self).items.map {(it) in
                 let p = try it.cast(Pair.self)
                 let n = try p.leftValue.cast(Identifier.self).name
                 let tid = try p.rightValue.cast(Identifier.self).name
