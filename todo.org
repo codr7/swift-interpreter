@@ -6,9 +6,15 @@ ask "What's your name? "
 ---
 
 swift run -c release
+
 swift run -c release swiftr benchmarks/fib.swiftr
 
 1.986601861 seconds
 0.670250438 seconds
 1.783246115 seconds
 
+python benchmarks/fib.py
+
+0.08075075500528328
+0.0401514310069615
+0.08624302899988834
