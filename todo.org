@@ -1,34 +1,14 @@
-* add say function
-** "\(v.say)\n"
-** add Value.say
-** add ValueType.say
-*** default toString
-*** pair x: y
-*** list x y z
-*** hash x: y z 
-*** string foo
+* add ask function
+** use readLine (repl)
 
-* put benchmarks into benchmarks/fib.swiftr
+ask "What's your name? "
 
 ---
 
 swift run -c release
+swift run -c release swiftr benchmarks/fib.swiftr
 
-function fib1(n:Int):Int 
-  if n.< 2 n else (fib1 n.- 1).+ fib1 n.- 2 
-benchmark 100 fib1 20
-
-1.814317117
-
-function fib2(n:Int a:Int b:Int):Int 
-  if n.> 1 return fib2 n.- 1 b a.+ b else if n.= 0 a else b 
-benchmark 10000 fib2 70 0 1
-
-0.624275309
-
-function fib3(n:Int lookup:Hash):Int
-  lookup.get-insert n if n.< 2 n else (fib3 n.- 1 lookup).+ fib3 n.- 2 lookup 
-benchmark 10000 fib3 70 {}
-
-1.649630514
+1.986601861 seconds
+0.670250438 seconds
+1.783246115 seconds
 

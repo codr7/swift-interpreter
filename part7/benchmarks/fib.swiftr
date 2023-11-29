@@ -1,0 +1,20 @@
+(
+  function fib(n:Int):Int 
+    if n.< 2 n else (fib n.- 1).+ fib n.- 2
+    
+  say benchmark 100 fib 20
+)
+
+(
+  function fib(n:Int a:Int b:Int):Int 
+    if n.> 1 return fib n.- 1 b a.+ b else if n.= 0 a else b
+    
+  say benchmark 10000 fib 70 0 1
+)
+
+(
+function fib(n:Int lookup:Hash):Int
+  lookup.get-insert n if n.< 2 n else (fib n.- 1 lookup).+ fib n.- 2 lookup 
+
+  say benchmark 10000 fib 70 {}
+)

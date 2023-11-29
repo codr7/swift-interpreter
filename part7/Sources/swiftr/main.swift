@@ -10,7 +10,8 @@ struct Value: CustomStringConvertible, Hashable {
 
     var description: String { type.toString(self) }
     var toBool: Bool { type.toBool(self) }
-
+    var say: String { type.say(self) }
+    
     init<T, D>(_ type: T, _ data: D) where T: BasicType<D>, T: ValueType {
         self.type = type
         self.data = data
@@ -51,6 +52,7 @@ protocol ValueType: CustomStringConvertible {
                         withArguments args: inout [Form]) throws
 
     func safeCast(_ value: Value, at: Position) throws -> Data
+    func say(_ value: Value) -> String
     func toBool(_ value: Value) -> Bool
     func toString(_ value: Value) -> String
 }
@@ -78,6 +80,10 @@ extension ValueType {
         let v = value.data as? Data
         if v == nil { throw EvaluateError.typeMismatch(pos, self, value.type) }
         return v!
+    }
+
+    func say(_ value: Value) -> String {
+        toString(value)
     }
 
     func toBool(_ value: Value) -> Bool {
@@ -1111,10 +1117,6 @@ class StandardLibrary: Namespace {
         func toBool(_ value: Value) -> Bool {
             cast(value)
         }
-
-        func toString(_ value: Value) -> String {
-            "\(cast(value))"
-        }
     }
     
     class FunctionType: BasicType<Function>, ValueType {
@@ -1194,6 +1196,10 @@ class StandardLibrary: Namespace {
             }
         }
 
+        func say(_ value: Value) -> String {
+            "\(cast(value).items.map({$0 == $1 ? $0.say : "\($0.say): \($1.say)"}).joined(separator: " "))"
+        }
+
         func toBool(_ value: Value) -> Bool {
             cast(value).items.count != 0
         }
@@ -1240,6 +1246,10 @@ class StandardLibrary: Namespace {
             for v in cast(value).items { v.hash(into: &hasher) }
         }
 
+        func say(_ value: Value) -> String {
+            "\(cast(value).items.map({$0.say}).joined(separator: " "))"
+        }
+        
         func toBool(_ value: Value) -> Bool {
             cast(value).items.count != 0
         }
@@ -1299,6 +1309,11 @@ class StandardLibrary: Namespace {
             p.1.hash(into: &hasher)
         }
 
+        func say(_ value: Value) -> String {
+            let p = cast(value)
+            return "\(p.0.say): \(p.1.say)"
+        }
+
         func toBool(_ value: Value) -> Bool {
             let v = cast(value)
             return v.0.toBool && v.1.toBool
@@ -1322,6 +1337,10 @@ class StandardLibrary: Namespace {
             hasher.combine(cast(value))
         }
 
+        func say(_ value: Value) -> String {
+            cast(value)
+        }
+        
         func toBool(_ value: Value) -> Bool {
             cast(value).count != 0
         }
@@ -1620,6 +1639,11 @@ class StandardLibrary: Namespace {
 
         bindFunction("pop", [("list", listType)], anyType) {(_, vm, pc, stack, pos) throws in
             stack.push(self.listType.cast(stack.pop()).items.removeLast())
+        }
+
+        bindFunction("say", [("what", anyType)], nil) {
+            (_, vm, pc, stack, pos) throws in
+            print("\(stack.pop().say)")
         }
 
         bindFunction("sleep", [("duration", timeType)], nil) {(_, vm, pc, stack, pos) throws in
