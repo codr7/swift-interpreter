@@ -8,7 +8,7 @@ struct Value: CustomStringConvertible, Hashable {
     let data: Any
     let type: any ValueType
 
-    var description: String { type.toString(self) }
+    var description: String { type.dump(self) }
     var toBool: Bool { type.toBool(self) }
     var say: String { type.say(self) }
     
@@ -41,6 +41,7 @@ protocol ValueType: CustomStringConvertible {
     var parentTypes: [any ValueType] {get}
 
     func cast(_ value: Value) -> Data
+    func dump(_ value: Value) -> String
     func equals(_ other: any ValueType) -> Bool
     func equals(_ value1: Value, _ value2: Value) -> Bool
     func hash(_ value: Value, _ hasher: inout Hasher)
@@ -54,7 +55,6 @@ protocol ValueType: CustomStringConvertible {
     func safeCast(_ value: Value, at: Position) throws -> Data
     func say(_ value: Value) -> String
     func toBool(_ value: Value) -> Bool
-    func toString(_ value: Value) -> String
 }
 
 extension ValueType {
@@ -62,6 +62,10 @@ extension ValueType {
 
     func cast(_ value: Value) -> Data {
         value.data as! Data
+    }
+
+    func dump(_ value: Value) -> String {
+        "\(value.data)"        
     }
 
     func equals(_ other: any ValueType) -> Bool {
@@ -83,15 +87,11 @@ extension ValueType {
     }
 
     func say(_ value: Value) -> String {
-        toString(value)
+        dump(value)
     }
 
     func toBool(_ value: Value) -> Bool {
         true
-    }
-
-    func toString(_ value: Value) -> String {
-        "\(value.data)"        
     }
 }
 
@@ -582,6 +582,7 @@ class VM {
         case or(PC)
         case popCall
         case push(Value)
+        case stack
         case stop
         case tailCall(Position, UserFunction)
         case task(PC)
@@ -649,8 +650,8 @@ class VM {
                 try target.call(self, &pc, &stack, at: pos)
             case let .check(pos):
                 if stack.count < 2 { throw EvaluateError.missingValue(pos) }
-                let actual = stack.pop()
                 let expected = stack.pop()
+                let actual = stack.pop()
                 if actual != expected { throw EvaluateError.checkFailed(pos, expected, actual) }
                 pc += 1
             case let .checkType(pos, expected):
@@ -722,6 +723,11 @@ class VM {
                 pc = c.returnPc
             case let .push(value):
                 stack.push(value)
+                pc += 1
+            case .stack:
+                let data = ListRef(stack)
+                stack = []
+                stack.push(Value(std.listType, data))
                 pc += 1
             case .stop:
                 pc += 1
@@ -1177,6 +1183,10 @@ class StandardLibrary: Namespace {
         let name = "Hash"
         override var parentTypes: [any ValueType] {[std.anyType]}
         
+        func dump(_ value: Value) -> String {
+            "{\(cast(value).items.map({$0 == $1 ? "\($0)" : "\($0):\($1)"}).joined(separator: " "))}"
+        }
+
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             let h1 = cast(value1)
             let h2 = cast(value2)
@@ -1203,10 +1213,6 @@ class StandardLibrary: Namespace {
         func toBool(_ value: Value) -> Bool {
             cast(value).items.count != 0
         }
-
-        func toString(_ value: Value) -> String {
-            "{\(cast(value).items.map({$0 == $1 ? "\($0)" : "\($0):\($1)"}).joined(separator: " "))}"
-        }
     }
     
     class IntType: BasicType<Int>, ValueType {
@@ -1229,6 +1235,10 @@ class StandardLibrary: Namespace {
     class ListType: BasicType<ListRef>, ValueType {
         let name = "List"
         override var parentTypes: [any ValueType] {[std.anyType]}
+
+        func dump(_ value: Value) -> String {
+            "[\(cast(value).items.map({"\($0)"}).joined(separator: " "))]"
+        }
         
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             let a1 = cast(value1)
@@ -1252,10 +1262,6 @@ class StandardLibrary: Namespace {
         
         func toBool(_ value: Value) -> Bool {
             cast(value).items.count != 0
-        }
-
-        func toString(_ value: Value) -> String {
-            "[\(cast(value).items.map({"\($0)"}).joined(separator: " "))]"
         }
     }
 
@@ -1297,6 +1303,11 @@ class StandardLibrary: Namespace {
         let name = "Pair"
         override var parentTypes: [any ValueType] {[std.anyType]}
         
+        func dump(_ value: Value) -> String {
+            let p = cast(value)
+            return "\(p.0):\(p.1)"
+        }
+
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             let p1 = cast(value1)
             let p2 = cast(value2)
@@ -1318,17 +1329,16 @@ class StandardLibrary: Namespace {
             let v = cast(value)
             return v.0.toBool && v.1.toBool
         }
-
-        func toString(_ value: Value) -> String {
-            let p = cast(value)
-            return "\(p.0):\(p.1)"
-        }
     }
 
     class StringType: BasicType<String>, ValueType {
         let name = "String"
         override var parentTypes: [any ValueType] {[std.anyType]}
-        
+
+        func dump(_ value: Value) -> String {
+            "\"\(cast(value))\""
+        }
+
         func equals(_ value1: Value, _ value2: Value) -> Bool {
             return cast(value1) == cast(value2)
         }
@@ -1343,10 +1353,6 @@ class StandardLibrary: Namespace {
         
         func toBool(_ value: Value) -> Bool {
             cast(value).count != 0
-        }
-
-        func toString(_ value: Value) -> String {
-            "\"\(cast(value))\""
         }
     }
 
@@ -1422,9 +1428,10 @@ class StandardLibrary: Namespace {
         }
 
         bindMacro("check", 2) {(_, vm, pos, ns, args) throws in
-            try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
+            let expected = args.removeFirst()
             let bodyNs = Namespace(ns)
             try args.removeFirst().emit(vm, inNamespace: bodyNs, withArguments: &args)
+            try expected.emit(vm, inNamespace: ns, withArguments: &args)
             vm.emit(.check(pos))
         }
 
@@ -1560,7 +1567,11 @@ class StandardLibrary: Namespace {
                 break
             }
         }
-        
+
+        bindMacro("stack", 0) {(_, vm, pos, ns, args) throws in
+            vm.emit(.stack)
+        }
+
         bindMacro("task", 1) {(_, vm, pos, ns, args) throws in
             let task = vm.emit(.nop)
             try args.removeFirst().emit(vm, inNamespace: ns, withArguments: &args)
@@ -1618,7 +1629,12 @@ class StandardLibrary: Namespace {
             stack.append(contentsOf: args)
             try f.call(vm, &pc, &stack, at: pos)
         }
-        
+
+        bindFunction("dump", [("what", anyType)], nil) {
+            (_, vm, pc, stack, pos) throws in
+            print("\(stack.pop())")
+        }
+
         bindFunction("is", [("value", anyType), ("type", metaType)], boolType) {
             (_, vm, pc, stack, pos) throws in
             let t = self.metaType.cast(stack.pop())
