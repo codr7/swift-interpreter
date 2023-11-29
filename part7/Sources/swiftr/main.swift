@@ -1052,33 +1052,37 @@ func readWhitespace(_ input: inout Input, _ output: inout [Form], _ pos: inout P
     return pos.line != p.line || pos.column != p.column
 }
 
-public struct FileHandleLineIterator: IteratorProtocol, Sequence {
+struct FileHandleLineIterator: IteratorProtocol, Sequence {
     let fileHandle: FileHandle
     let encoding: String.Encoding
 
-    public init(fileHandle: FileHandle, encoding: String.Encoding = .utf8) {
+    init(fileHandle: FileHandle, encoding: String.Encoding = .utf8) {
         self.fileHandle = fileHandle
         self.encoding = encoding
     }
 
-    public func next() -> String? {
+    func next() -> String? {
         var line: [UInt8] = []
 
         while true {
             let readBuffer = readOneByte()
-            if readBuffer.count == 0 { break }
+
+            if readBuffer.count == 0 {
+                if line.isEmpty { return nil }
+                break
+            }
+            
             let byte = readBuffer.first!
             if byte == 10 { break }
             line.append(byte)
         }
 
-        if line.isEmpty { return nil }
         let data = Data(line)
         return String(data: data, encoding: .utf8)
     }
 
-    private func readOneByte() -> Data {
-        return fileHandle.readData(ofLength: 1)
+    func readOneByte() -> Data {
+        fileHandle.readData(ofLength: 1)
     }
 }
 
