@@ -1,3 +1,5 @@
+* add read-lines function
+
 * add ask function
 ** use readLine (repl)
 

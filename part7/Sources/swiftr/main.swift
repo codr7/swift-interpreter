@@ -1052,6 +1052,36 @@ func readWhitespace(_ input: inout Input, _ output: inout [Form], _ pos: inout P
     return pos.line != p.line || pos.column != p.column
 }
 
+public struct FileHandleLineIterator: IteratorProtocol, Sequence {
+    let fileHandle: FileHandle
+    let encoding: String.Encoding
+
+    public init(fileHandle: FileHandle, encoding: String.Encoding = .utf8) {
+        self.fileHandle = fileHandle
+        self.encoding = encoding
+    }
+
+    public func next() -> String? {
+        var line: [UInt8] = []
+
+        while true {
+            let readBuffer = readOneByte()
+            if readBuffer.count == 0 { break }
+            let byte = readBuffer.first!
+            if byte == 10 { break }
+            line.append(byte)
+        }
+
+        if line.isEmpty { return nil }
+        let data = Data(line)
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func readOneByte() -> Data {
+        return fileHandle.readData(ofLength: 1)
+    }
+}
+
 class HashRef {
     typealias Items = [Value:Value]
     var items: Items
@@ -1655,6 +1685,18 @@ class StandardLibrary: Namespace {
 
         bindFunction("pop", [("list", listType)], anyType) {(_, vm, pc, stack, pos) throws in
             stack.push(self.listType.cast(stack.pop()).items.removeLast())
+        }
+
+        bindFunction("read-lines", [("path", stringType)], listType) {(_, vm, pc, stack, pos) throws in
+            if let f = FileHandle(forReadingAtPath: self.stringType.cast(stack.pop())) {
+                let i = FileHandleLineIterator(fileHandle: f, encoding: String.Encoding.utf8)
+                var lines: [Value] = []
+                for line in i { lines.append(Value(self.stringType, line)) }
+                stack.push(Value(self.listType, ListRef(lines)))
+                try f.close()
+            } else {
+                fatalError("fail")
+            }
         }
 
         bindFunction("say", [("what", anyType)], nil) {
