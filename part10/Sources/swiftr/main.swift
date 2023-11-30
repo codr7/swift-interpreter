@@ -1214,6 +1214,8 @@ class StandardLibrary: Namespace {
                     }
                 }
 
+                if actual != nil && actual!.hierarchy.count < expected.hierarchy.count { actual = nil }
+                
                 if actual != nil && !actual!.hierarchy.contains(expected.id) {
                     throw EmitError.typeMismatch(f.position, expected, actual!)
                 }
@@ -1732,6 +1734,11 @@ class StandardLibrary: Namespace {
             let d = self.timeType.cast(stack.pop())
             Thread.sleep(forTimeInterval: Double(d.components.seconds) +
                            Double(d.components.attoseconds) * 1e-18)
+        }
+
+        bindFunction("string-int", [("value", stringType)], intType) {(_, vm, pc, stack, pos) throws in
+            let v = self.stringType.cast(stack.pop())
+            stack.push(Value(self.intType, Int(v)!))
         }
 
         bindFunction("type", [("value", anyType)], metaType) {(_, vm, pc, stack, pos) throws in
