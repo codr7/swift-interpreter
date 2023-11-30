@@ -1,3 +1,8 @@
+* Advent of code 1
+
+* add Sequence/CollectionType
+** String < Collection < Sequence
+
 ---
 
 swift run -c release
