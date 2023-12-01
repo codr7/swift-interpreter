@@ -24,11 +24,11 @@
   (find-string in '("one" "two" "three" "four" "five" "six" "seven" "eight" "nine") :from-end from-end))
 
 (defun find-digit (in &key (from-end nil))
-  (multiple-value-bind (ci cv) (find-char-digit in :from-end from-end)
-    (multiple-value-bind (wi wv) (find-word-digit in :from-end from-end)
+  (multiple-value-bind (ci cj) (find-char-digit in :from-end from-end)
+    (multiple-value-bind (wi wj) (find-word-digit in :from-end from-end)
       (if from-end
-	  (if (> ci wi) cv wv)
-	  (if (< ci wi) cv wv)))))
+	  (if (> ci wi) cj wj)
+	  (if (< ci wi) cj wj)))))
 
 (defun decode-line (line)
   (parse-integer (format nil "~a~a" (find-digit line) (find-digit line :from-end t))))
