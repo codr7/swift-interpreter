@@ -8,14 +8,14 @@
       (rec nil))))
 
 (defun find-string (in strings &key (from-end nil))
-  (let ((ri (if from-end -1 (length in))) rv (v 1))
+  (let ((ri (if from-end -1 (length in))) rj (j 1))
     (dolist (s strings)
       (let ((i (search s in :from-end from-end)))
 	(when (and i (or (and from-end (> i ri))
 			 (and (not from-end) (< i ri))))
-	  (setf ri i rv v)))
-      (incf v))
-    (values ri rv)))
+	  (setf ri i rj j)))
+      (incf j))
+    (values ri rj)))
 
 (defun find-char-digit (in &key (from-end nil))
   (find-string in '("1" "2" "3" "4" "5" "6" "7" "8" "9") :from-end from-end))
