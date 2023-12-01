@@ -1,4 +1,6 @@
 * remove endPc from ops where not needed
+* remove task support
+** benchmark
 * Rename Argument to Register
 ** Remove Argument.Value struct
 ** replace with optional Value
@@ -13,9 +15,9 @@ swift run -c release
 
 swift run -c release swiftr benchmarks/fib.swiftr
 
-1.986601861 seconds
-1.783246115 seconds
-0.670250438 seconds
+1.979623813 seconds
+1.830848289 seconds
+0.6708926 seconds
 
 python benchmarks/fib.py
 

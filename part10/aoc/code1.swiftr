@@ -1,0 +1,15 @@
+function calibrate(lines:List):Int (
+  function sum-lines(total:Int):Int (
+    function sum-line(line:String):Int
+      sum-lines total
+
+    if lines
+      sum-line lines.pop total
+    else
+      total
+  )
+  
+  sum-lines 0
+)
+
+calibrate "data1.txt".read-lines
