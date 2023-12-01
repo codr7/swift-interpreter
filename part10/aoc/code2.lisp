@@ -8,27 +8,26 @@
       (rec nil))))
 
 (defun find-string (in strings &key (from-end nil))
-  (let ((ri (if from-end -1 (length in))) rj (j 1))
+  (let ((ri (if from-end -1 (length in))) rj)
     (dolist (s strings)
-      (let ((i (search s in :from-end from-end)))
+      (let ((i (search (first s) in :from-end from-end)))
 	(when (and i (or (and from-end (> i ri))
 			 (and (not from-end) (< i ri))))
-	  (setf ri i rj j)))
-      (incf j))
-    (values ri rj)))
+	  (setf ri i rj (rest s)))))
+    rj))
 
-(defun find-char-digit (in &key (from-end nil))
-  (find-string in '("1" "2" "3" "4" "5" "6" "7" "8" "9") :from-end from-end))
-
-(defun find-word-digit (in &key (from-end nil))
-  (find-string in '("one" "two" "three" "four" "five" "six" "seven" "eight" "nine") :from-end from-end))
-
+(defun enumerate (&rest in)
+  (labels ((rec (in out i)
+	     (if in
+		 (rec (rest in) (cons (cons (first in) i) out) (1+ i))
+		 (nreverse out))))
+    (rec in nil 1)))
+	    
 (defun find-digit (in &key (from-end nil))
-  (multiple-value-bind (ci cj) (find-char-digit in :from-end from-end)
-    (multiple-value-bind (wi wj) (find-word-digit in :from-end from-end)
-      (if from-end
-	  (if (> ci wi) cj wj)
-	  (if (< ci wi) cj wj)))))
+  (find-string in
+	       (append (enumerate "1" "2" "3" "4" "5" "6" "7" "8" "9")
+		       (enumerate "one" "two" "three" "four" "five" "six" "seven" "eight" "nine"))
+	       :from-end from-end))
 
 (defun decode-line (line)
   (parse-integer (format nil "~a~a" (find-digit line) (find-digit line :from-end t))))
