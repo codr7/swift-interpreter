@@ -175,7 +175,7 @@ class Call {
 }
 
 class Function: CustomStringConvertible {
-    typealias Body = (Function, VM, inout PC, inout [Value], Position) throws -> Void
+    typealias Body = (Function, VM, inout [Value], Position) throws -> Void
     
     let arguments: [(String, any ValueType)]
     let body: Body
@@ -195,8 +195,8 @@ class Function: CustomStringConvertible {
         self.body = body
     }
 
-    func call(_ vm: VM, _ pc: inout PC, _ stack: inout [Value], at pos: Position) throws {
-        try body(self, vm, &pc, &stack, pos)
+    func call(_ vm: VM,_ stack: inout [Value], at pos: Position) throws {
+        try body(self, vm, &stack, pos)
     }
 }
 
@@ -235,14 +235,13 @@ class UserFunction: Function {
          _ startPc: PC) {
         self.startPc = startPc
         
-        super.init(name, arguments, resultType) {
-            (f, vm, pc, stack, pos) throws in
+        super.init(name, arguments, resultType) {(f, vm, stack, pos) throws in
             vm.currentCall = Call(vm.currentCall,
                                   f as! UserFunction,
                                   stack.cut(f.arity),
                                   at: pos,
-                                  returnPc: pc)
-            pc = startPc
+                                  returnPc: vm.pc)
+            vm.pc = startPc
         }
     }
 }
@@ -262,9 +261,9 @@ class Closure: UserFunction {
         self.closureArguments = target.closureArguments
     }
     
-    override func call(_ vm: VM, _ pc: inout PC, _ stack: inout [Value], at pos: Position) throws {
+    override func call(_ vm: VM, _ stack: inout [Value], at pos: Position) throws {
         stack.append(contentsOf: self.stack)
-        try super.call(vm, &pc, &stack, at: pos)
+        try super.call(vm, &stack, at: pos)
     }
 }
 
@@ -601,6 +600,7 @@ class VM {
     var currentTask: Task? {tasks[0]}
     var emitPc: PC {code.count}
     var nextTaskId = 0
+    var pc: PC = 0
     var tasks: [Task] = []
     var trace = false
     
@@ -617,7 +617,7 @@ class VM {
     }
     
     func evaluate(fromPc: PC, stack: inout [Value]) throws {
-        var pc = fromPc
+        pc = fromPc
         
         loop: while true {
             let op = code[pc]
@@ -649,7 +649,7 @@ class VM {
                 pc = endPc
             case let .call(pos, target):
                 pc += 1
-                try target.call(self, &pc, &stack, at: pos)
+                try target.call(self, &stack, at: pos)
             case let .check(pos):
                 if stack.count < 2 { throw EvaluateError.missingValue(pos) }
                 let expected = stack.pop()
@@ -732,14 +732,13 @@ class VM {
                 stack.push(Value(std.listType, data))
                 pc += 1
             case .stop:
-                pc += 1
                 break loop
             case let .tailCall(pos, target):
                 let c = currentCall
                 
                 if c == nil {
                     pc += 1
-                    try target.call(self, &pc, &stack, at: pos)
+                    try target.call(self, &stack, at: pos)
                 } else {
                     c!.target = target
                     c!.arguments = stack.cut(target.arity)
@@ -1632,36 +1631,36 @@ class StandardLibrary: Namespace {
             vm.trace = !vm.trace
         }
         
-        bindFunction("=", [("left", anyType), ("right", anyType)], boolType) {(_, vm, pc, stack, pos) throws in
+        bindFunction("=", [("left", anyType), ("right", anyType)], boolType) {(_, vm, stack, pos) throws in
             stack.push(Value(self.boolType, stack.pop() == stack.pop()))
         }
 
-        bindFunction("<", [("left", intType), ("right", intType)], boolType) {(_, vm, pc, stack, pos) throws in
+        bindFunction("<", [("left", intType), ("right", intType)], boolType) {(_, vm, stack, pos) throws in
             let r = self.intType.cast(stack.pop())
             let l = self.intType.cast(stack.pop())
             stack.push(Value(self.boolType, l < r))
         }
         
-        bindFunction(">", [("left", intType), ("right", intType)], boolType) {(_, vm, pc, stack, pos) throws in
+        bindFunction(">", [("left", intType), ("right", intType)], boolType) {(_, vm, stack, pos) throws in
             let r = self.intType.cast(stack.pop())
             let l = self.intType.cast(stack.pop())
             stack.push(Value(self.boolType, l > r))
         }
         
-        bindFunction("+", [("left", intType), ("right", intType)], intType) {(_, vm, pc, stack, pos) throws in
+        bindFunction("+", [("left", intType), ("right", intType)], intType) {(_, vm, stack, pos) throws in
             let r = self.intType.cast(stack.pop())
             let l = self.intType.cast(stack.pop())
             stack.push(Value(self.intType, l + r))
         }
 
-        bindFunction("-", [("left", intType), ("right", intType)], intType) {(_, vm, pc, stack, pos) throws in
+        bindFunction("-", [("left", intType), ("right", intType)], intType) {(_, vm, stack, pos) throws in
             let r = self.intType.cast(stack.pop())
             let l = self.intType.cast(stack.pop())
             stack.push(Value(self.intType, l - r))
         }
 
         bindFunction("call", [("target", functionType), ("arguments", listType)], nil) {
-            (_, vm, pc, stack, pos) throws in
+            (_, vm, stack, pos) throws in
             let args = self.listType.cast(stack.pop()).items
             let f = self.functionType.cast(stack.pop())
             if args.count != f.arguments.count { throw EvaluateError.arityMismatch(pos) }
@@ -1676,21 +1675,21 @@ class StandardLibrary: Namespace {
             }
 
             stack.append(contentsOf: args)
-            try f.call(vm, &pc, &stack, at: pos)
+            try f.call(vm, &stack, at: pos)
         }
 
         bindFunction("dump", [("what", anyType)], nil) {
-            (_, vm, pc, stack, pos) throws in
+            (_, vm, stack, pos) throws in
             print("\(stack.pop())")
         }
 
         bindFunction("is", [("value", anyType), ("type", metaType)], boolType) {
-            (_, vm, pc, stack, pos) throws in
+            (_, vm, stack, pos) throws in
             let t = self.metaType.cast(stack.pop())
             stack.push(Value(self.boolType, stack.pop().type.hierarchy.contains(t.id)))
         }
 
-        bindFunction("load", [("path", stringType)], nil) {(_, vm, pc, stack, pos) throws in
+        bindFunction("load", [("path", stringType)], nil) {(_, vm, stack, pos) throws in
             let p = self.stringType.cast(stack.pop())
             let d = URL(fileURLWithPath: p).deletingLastPathComponent().path
             let previousPath = vm.currentPath
@@ -1702,16 +1701,16 @@ class StandardLibrary: Namespace {
             try vm.evaluate(fromPc: startPc, stack: &stack)
         }
 
-        bindFunction("milliseconds", [("value", intType)], timeType) {(_, vm, pc, stack, pos) throws in
+        bindFunction("milliseconds", [("value", intType)], timeType) {(_, vm, stack, pos) throws in
             let v = self.intType.cast(stack.pop())
             stack.push(Value(self.timeType, Duration.milliseconds(v)))
         }
 
-        bindFunction("pop", [("list", listType)], anyType) {(_, vm, pc, stack, pos) throws in
+        bindFunction("pop", [("list", listType)], anyType) {(_, vm, stack, pos) throws in
             stack.push(self.listType.cast(stack.pop()).items.removeLast())
         }
 
-        bindFunction("read-lines", [("path", stringType)], listType) {(_, vm, pc, stack, pos) throws in
+        bindFunction("read-lines", [("path", stringType)], listType) {(_, vm, stack, pos) throws in
             let p = path([vm.currentPath, self.stringType.cast(stack.pop())])
 
             if let f = FileHandle(forReadingAtPath: p) {
@@ -1725,33 +1724,32 @@ class StandardLibrary: Namespace {
             }
         }
 
-        bindFunction("say", [("what", anyType)], nil) {
-            (_, vm, pc, stack, pos) throws in
+        bindFunction("say", [("what", anyType)], nil) {(_, vm, stack, pos) throws in
             print("\(stack.pop().say)")
         }
 
-        bindFunction("sleep", [("duration", timeType)], nil) {(_, vm, pc, stack, pos) throws in
+        bindFunction("sleep", [("duration", timeType)], nil) {(_, vm, stack, pos) throws in
             let d = self.timeType.cast(stack.pop())
             Thread.sleep(forTimeInterval: Double(d.components.seconds) +
                            Double(d.components.attoseconds) * 1e-18)
         }
 
-        bindFunction("string-int", [("value", stringType)], intType) {(_, vm, pc, stack, pos) throws in
+        bindFunction("string-int", [("value", stringType)], intType) {(_, vm, stack, pos) throws in
             let v = self.stringType.cast(stack.pop())
             stack.push(Value(self.intType, Int(v)!))
         }
 
-        bindFunction("type", [("value", anyType)], metaType) {(_, vm, pc, stack, pos) throws in
+        bindFunction("type", [("value", anyType)], metaType) {(_, vm, stack, pos) throws in
             stack.push(Value(self.metaType, stack.pop().type))
         }
 
-        bindFunction("yield", [], nil) {(_, vm, pc, stack, pos) throws in
+        bindFunction("yield", [], nil) {(_, vm, stack, pos) throws in
             let c1 = vm.currentTask!
-            c1.pc = pc
+            c1.pc = vm.pc
             c1.stack = stack
             vm.tasks.append(vm.tasks.removeFirst())
             let c2 = vm.currentTask!
-            pc = c2.pc
+            vm.pc = c2.pc
             stack = c2.stack
         }
     }

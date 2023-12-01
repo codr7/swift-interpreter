@@ -1,3 +1,11 @@
+* Rename Argument to Register
+** Remove Argument.Value struct
+** replace with optional Value
+* add VM.registers
+* replace Closure.stack with registerValues
+* replace Call.arguments with registerValues
+** restore on pop
+
 ---
 
 swift run -c release
