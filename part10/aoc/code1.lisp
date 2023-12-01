@@ -9,8 +9,6 @@
 
 (defun find-digit (in &key (from-end nil))
   (let ((c (find-if #'digit-char-p in :from-end from-end)) )
-    (unless c
-      (error "No digits found"))
     (- (char-code c) (char-code #\0))))
    
 (defun decode-line (line)
