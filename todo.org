@@ -1,3 +1,4 @@
+* remove endPc from ops where not needed
 * Rename Argument to Register
 ** Remove Argument.Value struct
 ** replace with optional Value
