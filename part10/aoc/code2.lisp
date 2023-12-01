@@ -1,11 +1,4 @@
-(defun read-lines (path)
-  (with-open-file (f path)
-    (labels ((rec (out)
-	       (let ((line (read-line f nil)))
-		 (if line
-		     (rec (cons line out))
-		     (nreverse out)))))
-      (rec nil))))
+(load (merge-pathnames "utils.lisp" *load-truename*))
 
 (defun find-string (in strings &key (from-end nil))
   (let ((ri (if from-end -1 (length in))) rj)
@@ -17,11 +10,7 @@
     rj))
 
 (defun enumerate (&rest in)
-  (labels ((rec (in out i)
-	     (if in
-		 (rec (rest in) (cons (cons (first in) i) out) (1+ i))
-		 (nreverse out))))
-    (rec in nil 1)))
+  (mapcar #'cons in (iota 1 (1+ (length in)) 1)))
 	    
 (defun find-digit (in &key (from-end nil))
   (find-string in

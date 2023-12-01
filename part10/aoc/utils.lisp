@@ -1,0 +1,25 @@
+(defun iota (start end step)
+  (labels ((rec (i out)
+	     (if (< i end)
+		 (rec (+ i step) (cons i out))
+		 (nreverse out))))
+    (rec start nil)))
+
+(defun read-lines (path)
+  (with-open-file (f path)
+    (labels ((rec (out)
+	       (let ((line (read-line f nil)))
+		 (if line
+		     (rec (cons line out))
+		     (nreverse out)))))
+      (rec nil))))
+
+(defun replace-all (in old new)
+  (with-output-to-string (out)
+    (labels ((rec (j)
+	       (let ((i (search old in :start2 j)))
+		 (write-string in out :start j :end (or i (length in)))
+		 (when i
+		   (write-string new out)
+		   (rec (+ i (length old)))))))
+      (rec 0))))

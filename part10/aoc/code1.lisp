@@ -1,11 +1,4 @@
-(defun read-lines (path)
-  (with-open-file (f path)
-    (labels ((rec (out)
-	       (let ((line (read-line f nil)))
-		 (if line
-		     (rec (cons line out))
-		     (nreverse out)))))
-      (rec nil))))
+(load (merge-pathnames "utils.lisp" *load-truename*))
 
 (defun find-digit (in &key (from-end nil))
   (let ((c (find-if #'digit-char-p in :from-end from-end)) )
