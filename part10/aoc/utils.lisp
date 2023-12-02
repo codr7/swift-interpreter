@@ -124,9 +124,9 @@
         (rplacd prev nil)
         (values in tail))))
 
-(defun split-sequence (seq it)
+(defun split-sep (seq sep)
   (labels ((rec (i out)
-	     (let ((j (position it seq :start i)))
+	     (let ((j (position sep seq :start i)))
 	       (if j
 		   (rec (1+ j) (cons (subseq seq i j) out))
 		   (nreverse (cons (subseq seq i) out))))))

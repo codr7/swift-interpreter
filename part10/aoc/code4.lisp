@@ -5,11 +5,11 @@
     (cons (kw (subseq in (1+ i))) n)))
 
 (defun read-game (in)
-  (mapcar #'read-count (split-sequence in #\,)))
+  (mapcar #'read-count (split-sep in #\,)))
 	  
 (defun read-games (in)
   (let ((i (position #\: in)))
-    (mapcar #'read-game (split-sequence (subseq in (1+ i)) #\;))))
+    (mapcar #'read-game (split-sep (subseq in (1+ i)) #\;))))
 
 (defun get-count (in c)
   (let ((found (assoc c in)))
