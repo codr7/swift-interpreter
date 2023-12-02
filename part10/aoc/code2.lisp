@@ -11,7 +11,7 @@
 
 (defun enumerate (&rest in)
   (mapcar #'cons in (iota 1 (1+ (length in)) 1)))
-	    
+
 (defun find-digit (in &key (from-end nil))
   (find-string in
 	       (append (enumerate "1" "2" "3" "4" "5" "6" "7" "8" "9")
