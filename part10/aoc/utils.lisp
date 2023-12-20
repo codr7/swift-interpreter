@@ -76,6 +76,13 @@
 (defmethod len ((x hash-table))
   (hash-table-count x))
 
+(defun reduce-times (fn n out)
+  (labels ((rec (i out)
+	     (if (< i n)
+		 (rec (1+ i) (funcall fn i out))
+		 out)))
+    (rec 0 out)))
+
 (defmacro nor (&rest args)
   `(not (or ,@args)))
 

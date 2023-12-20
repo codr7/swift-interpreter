@@ -69,8 +69,8 @@
   (sort (mapcar #'parse-line (read-lines path)) #'compare-hands))
 
 (defun total-win (path)
-  (let ((hs (coerce (decode-file path) 'vector))
-	(tw 0))
-    (dotimes (i (length hs))
-      (incf tw (* (1+ i) (rest (aref hs i)))))
-    tw))
+  (let ((hs (coerce (parse-file path) 'vector)))
+    (reduce-times (lambda (i out)
+		    (+ out (* (1+ i) (rest (aref hs i)))))
+		  (length hs)
+		  0)))
