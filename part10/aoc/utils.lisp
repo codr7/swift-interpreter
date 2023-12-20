@@ -16,7 +16,7 @@
 	  ,$next
 	  (multiple-value-bind (,$ok ,$k ,v) (,$i)
 	    (when ,$ok
-	      (destructuring-bind ,k ,$k
+	      (let ((,k ,$k))
 		,@body
 		(go ,$next))))))))
 
