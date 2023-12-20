@@ -1,7 +1,5 @@
 (load (merge-pathnames "utils.lisp" *load-truename*))
 
-;; A, K, Q, J, T, 9, 8, 7, 6, 5, 4, 3, or 2
-
 (define-symbol-macro card-count 14)
 
 (defparameter card-names #(#\T #\J #\Q #\K #\A))
